@@ -1,0 +1,40 @@
+# Fork-owned sync (PAT-based) for ridesnails/prokbot-plus main.
+# Pattern reused from ridesnails/EasyTier sync-fork-pat.yml.
+# Uses secrets.SYNC_PAT (classic PAT, repo + workflow) so pushes can include
+# workflow-file changes. GITHUB_TOKEN cannot push workflow files.
+name: Fork Sync (PAT)
+
+permissions:
+  contents: write
+
+on:
+  schedule:
+    - cron: "0 1 * * *" # daily 01:00 UTC / 09:00 CST
+  workflow_dispatch:
+
+jobs:
+  sync_latest_from_upstream:
+    name: Sync latest commits from upstream repo
+    runs-on: ubuntu-latest
+    if: ${{ github.event.repository.fork }}
+    steps:
+      - name: Checkout target repo
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_PAT }}
+      - name: Sync upstream changes
+        id: sync
+        uses: aormsby/Fork-Sync-With-Upstream-action@v3.4
+        with:
+          upstream_sync_repo: ferretgeek/prokbot-plus
+          upstream_sync_branch: main
+          target_sync_branch: main
+          target_repo_token: ${{ secrets.SYNC_PAT }}
+          test_mode: false
+      - name: Sync check
+        if: failure()
+        run: |
+          echo "[Error] 上游同步失败，请前往仓库页面查看日志并手动处理合并冲突。"
+          exit 1
