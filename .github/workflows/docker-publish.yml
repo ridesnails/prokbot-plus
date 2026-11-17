@@ -1,0 +1,91 @@
+# Build + publish ProkBot Plus Host / Box images from this fork to GHCR.
+# Upstream has no published image and no .github/workflows at all:
+# its only build entry is host/release/build-docker.py, which builds
+# local-only tags (grokbot-host:local, distribution: local-only).
+# This workflow reuses that script unchanged, then pushes the result.
+# Host d0a4baa, Box 9d2ac1b (pinned in host/recipes/host/manifest.json).
+# Box is amd64-only, so the Box job and the first Host job are amd64.
+# Images are ~13 GB on disk; the runner needs the Box pull + base build.
+# GHCR visibility: packages inherit the repo visibility unless changed
+# in the package settings afterwards. Noncommercial license only:
+# personal self-hosting, no paid hosting / SaaS.
+name: Docker Publish (fork)
+
+permissions:
+  contents: read
+  packages: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag, e.g. 1.3.0 (no leading v)"
+        required: true
+        default: "1.3.0"
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  host-amd64:
+    name: Host image (linux/amd64)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Compute tag
+        id: tag
+        run: |
+          TAG="${{ inputs.tag }}"
+          if [ -z "$TAG" ]; then TAG="${GITHUB_REF_NAME#v}"; fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/ridesnails/prokbot-plus-host:$TAG" >> "$GITHUB_OUTPUT"
+      - name: Disk before
+        run: df -h; docker system df || true
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build Host with upstream script
+        run: |
+          python3 host/release/build-docker.py --image "${{ steps.tag.outputs.image }}"
+      - name: Push Host image
+        run: |
+          docker push "${{ steps.tag.outputs.image }}"
+          docker image inspect "${{ steps.tag.outputs.image }}" --format 'digest={{.Id}} repoDigests={{.RepoDigests}}'
+      - name: Disk after
+        run: df -h; docker system df || true
+
+  box-amd64:
+    name: Box image (linux/amd64, retag pinned upstream digest)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Compute tags
+        id: tag
+        run: |
+          TAG="${{ inputs.tag }}"
+          if [ -z "$TAG" ]; then TAG="${GITHUB_REF_NAME#v}"; fi
+          BOX_REF=$(python3 -c "import json; m=json.load(open('host/recipes/host/manifest.json')); b=m['box']; print(b['repository']+'@'+b['manifestDigest'])")
+          BOX_TAG=$(python3 -c "import json; m=json.load(open('host/recipes/host/manifest.json')); print(m['box']['localTag'])")
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "box_ref=$BOX_REF" >> "$GITHUB_OUTPUT"
+          echo "box_tag=$BOX_TAG" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/ridesnails/prokbot-plus-box:$TAG" >> "$GITHUB_OUTPUT"
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull pinned Box, retag, push
+        run: |
+          docker pull --platform linux/amd64 "${{ steps.tag.outputs.box_ref }}"
+          docker tag "${{ steps.tag.outputs.box_ref }}" "ghcr.io/ridesnails/prokbot-plus-box:9d2ac1b"
+          docker tag "${{ steps.tag.outputs.box_ref }}" "${{ steps.tag.outputs.image }}"
+          docker push "ghcr.io/ridesnails/prokbot-plus-box:9d2ac1b"
+          docker push "${{ steps.tag.outputs.image }}"
+          docker image inspect "${{ steps.tag.outputs.image }}" --format 'digest={{.Id}} repoDigests={{.RepoDigests}}'
