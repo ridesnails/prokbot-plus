@@ -1,0 +1,97 @@
+# Build patched clients from this fork in CI, where the right OS exists.
+# Upstream releases only ship tool zips, never a finished client:
+# each client must be generated from an official installer the tool
+# downloads and verifies by SHA-256. No official program is committed.
+# - Windows: needs Windows 10/11 x64 (tar.exe / 7-Zip), Node 22.12+.
+#   Output: portable dir + portable zip + Setup exe (unsigned, SmartScreen).
+# - Android: runs on Linux/macOS/Windows, Node 22.12+. Needs 7z to unpack
+#   app-64.7z from the Windows installer. Output: APK + patch.json.
+#   Signing key is created on first run at ~/.grokbot-local/android-signing.json;
+#   this job uploads it as a separate artifact ONCE so the owner can back
+#   it up (0600). Upgrades must use the same key, or the app must be
+#   uninstalled and re-paired. Download the artifact, back the key up
+#   offline, then delete the artifact from the run.
+# - macOS: needs Apple Silicon Mac (macos-14 runner). Output: Grok Bot.app
+#   (0.71.2 only; 1.1.0 not yet ported upstream). No real-Mac test by upstream.
+# - iOS: NOT built here. It needs a user-supplied decrypted 1.16.0 IPA
+#   plus signing certificates, which this repo does not have.
+name: Build Clients (fork)
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Desktop interface version (Windows/Android), 1.1.0 or 0.71.2"
+        required: true
+        default: "1.1.0"
+
+jobs:
+  windows:
+    name: Windows client (1.1.0, fallback 0.71.2 via --version)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Patch Windows client
+        run: node windows/patchers/desktop/patch.mjs
+      - name: Verify-only against 0.71.2 installer too
+        run: node windows/patchers/desktop/patch.mjs --version 0.71.2 --verify-only
+      - name: Upload Windows outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: prokbot-plus-windows-1.1.0
+          path: windows/output/
+          if-no-files-found: error
+
+  android:
+    name: Android APK (interface from Windows 1.1.0 installer)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install 7z (unpack app-64.7z)
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full
+      - name: Verify-only (no APK, no signing key)
+        run: node android/patchers/patch.mjs --verify-only
+      - name: Build APK
+        run: node android/patchers/patch.mjs --force
+      - name: Upload APK + build record
+        uses: actions/upload-artifact@v4
+        with:
+          name: prokbot-plus-android-1.1.0
+          path: |
+            android/output/
+          if-no-files-found: error
+      - name: Upload signing key (BACK UP, then delete this artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-signing-key-BACKUP-THEN-DELETE
+          path: ~/.grokbot-local/android-signing.json
+          if-no-files-found: error
+
+  mac:
+    name: macOS client (0.71.2 only)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Patch macOS client
+        working-directory: mac
+        run: node patchers/desktop/patch.mjs
+      - name: Zip .app for download
+        run: ditto -c -k --sequesterRsrc --keepParent "mac/output.noindex/Grok Bot.app" "mac-output/GrokBotLocal-0.71.2-mac.zip" || (mkdir -p mac-output && ditto -c -k --sequesterRsrc --keepParent "mac/output.noindex/Grok Bot.app" "mac-output/GrokBotLocal-0.71.2-mac.zip")
+      - name: Upload macOS output
+        uses: actions/upload-artifact@v4
+        with:
+          name: prokbot-plus-mac-0.71.2
+          path: mac-output/
+          if-no-files-found: error
