@@ -2,6 +2,19 @@ import { randomBytes } from "node:crypto";
 import { chmod, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 
+export async function syncRenamedDirectory(directory, { openFile = open, platform = process.platform } = {}) {
+  const handle = await openFile(directory, "r");
+  try {
+    await handle.sync();
+  } catch (error) {
+    // Windows does not support fsync on directory handles. The file itself was
+    // already synced before the rename, so retain the atomic replacement there.
+    if (!(platform === "win32" && error?.code === "EPERM")) throw error;
+  } finally {
+    await handle.close();
+  }
+}
+
 export async function writePrivate(filename, text) {
   await mkdir(dirname(filename), { recursive: true, mode: 0o700 });
   const temporary = `${filename}.${randomBytes(8).toString("hex")}.tmp`;
@@ -13,12 +26,7 @@ export async function writePrivate(filename, text) {
     await file.close();
     file = null;
     await rename(temporary, filename);
-    const directory = await open(dirname(filename), "r");
-    try {
-      await directory.sync();
-    } finally {
-      await directory.close();
-    }
+    await syncRenamedDirectory(dirname(filename));
   } finally {
     await file?.close();
     await rm(temporary, { force: true });

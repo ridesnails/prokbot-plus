@@ -75,7 +75,7 @@ export function createSharingEditor({ api, toast, act }) {
           await api(`/admin/api/sharing/${entry.id}`, { method: 'DELETE' }); await load();
         }) },
       ]);
-      return item({ tile: icon(entry.kind === 'bot' ? 'share' : 'book'), title: entry.name, description: entry.description,
+      return item({ icon: entry.kind === 'bot' ? 'share' : 'book', title: entry.name, description: entry.description,
         badges: [badge(entry.active ? t('已发布') : t('草稿'), entry.active ? 'success' : '')],
         meta: [`${entry.kind === 'bot' ? 'Bot' : t('技能')} · v${entry.version}`], actions: [open, more] });
     }) : [empty(t('暂无分享'), t('发布技能，或导入别人分享的 Bot 与技能 ZIP。'))]));

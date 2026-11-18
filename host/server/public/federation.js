@@ -137,7 +137,7 @@ export function createFederationEditor({ api, toast, act }) {
       }) },
     ]);
     const local = peer.allowedBots.map(id => roster.find(bot => bot.id === id)?.name ?? id);
-    const row = item({ tile: icon('swap'), title: peer.name,
+    const row = item({ icon: 'swap', title: peer.name,
       badges: [peer.error ? badge(t('同步失败'), 'danger') : !peer.enabled ? badge(t('已停用')) : badge(t('已连接'), 'success')],
       meta: [`${t('本地 Bot')}：${local.join(' · ') || t('无')}`, `${t('对方 Bot')}：${peer.remoteBots.map(bot => bot.name).join(' · ') || t('无')}`,
         peer.error || `${t('最近同步')} · ${time(peer.lastSyncAt)}`],
@@ -152,7 +152,7 @@ export function createFederationEditor({ api, toast, act }) {
       const peer = config.peers.find(value => value.id === entry.peerId), outgoing = entry.direction === 'outbound';
       const local = roster.find(bot => bot.id === (outgoing ? entry.fromAgentId : entry.toAgentId))?.name ?? t('本地 Bot');
       const remote = peer?.remoteBots.find(bot => bot.id === (outgoing ? entry.toAgentId : entry.fromAgentId))?.name ?? t('远程 Bot');
-      list.append(item({ tile: icon('swap'), title: outgoing ? `${local} → ${remote}` : `${remote} → ${local}`,
+      list.append(item({ icon: 'swap', title: outgoing ? `${local} → ${remote}` : `${remote} → ${local}`,
         meta: [`${peer?.name ?? ''} · ${time(entry.createdAt)}`], actions: [badge(t(states[entry.state] ?? entry.state))] }));
     }
   }

@@ -82,44 +82,94 @@ export async function* readSse(body, { waitForIO = direct, maxEventChars = MAX_E
   if (!body) throw new ModelRequestError('Model response has no body');
   const reader = body.getReader();
   const decoder = new TextDecoder('utf-8', { fatal: true });
-  let line = '', data = [], buffered = 0, skipLF = false;
-  function append(fragment) {
-    if (buffered + line.length + fragment.length > maxEventChars) throw new ModelRequestError('Model SSE event exceeds size limit');
-    line += fragment;
-  }
-  function accept() {
+  let line = '', skipLF = false, data = [], buffered = 0;
+  function accept(line) {
     if (line === '') {
       const event = data.length ? data.join('\n') : undefined;
       data = []; buffered = 0;
       return event;
     }
     if (line === 'data' || line.startsWith('data:')) {
+      if (buffered + line.length + 1 > maxEventChars) throw new ModelRequestError('Model SSE event exceeds size limit');
       data.push(line.slice(line[5] === ' ' ? 6 : 5));
       buffered += line.length + 1;
     }
-    line = '';
     return undefined;
+  }
+  // Some compatible gateways omit blank lines between data frames. Parse glued
+  // JSON incrementally so a large event is scanned once, not once per chunk.
+  let glued;
+  function resetGlued() { glued = undefined; }
+  function gluedEvents() {
+    const events = [];
+    while (line.startsWith('data:')) {
+      if (!glued) glued = { start: 0, scan: 0, depth: 0, quoted: false, escaped: false, doneFrom: 0 };
+      let start = glued.start || 5;
+      while (line[start] === ' ' || line[start] === '\t') start++;
+      if (start !== glued.start) glued.start = glued.start || 5;
+      if (!glued.doneFrom) glued.doneFrom = start;
+      const doneToken = '[DONE]';
+      if (line.startsWith(doneToken, start)) {
+        const end = start + doneToken.length;
+        // A terminal frame may omit its blank-line separator at EOF, but do not
+        // consume a longer literal value that merely starts with [DONE].
+        if (line.length === end || line.startsWith('data:', end)) {
+          events.push(doneToken); line = line.slice(end); resetGlued(); continue;
+        }
+        break;
+      }
+      if (!['{', '['].includes(line[start])) break;
+      let { scan, depth, quoted, escaped } = glued;
+      if (!scan) { scan = start; depth = 0; quoted = false; escaped = false; }
+      for (; scan < line.length; scan++) {
+        const character = line[scan];
+        if (quoted) {
+          if (escaped) escaped = false;
+          else if (character === '\\') escaped = true;
+          else if (character === '"') quoted = false;
+        } else if (character === '"') quoted = true;
+        else if (character === '{' || character === '[') depth++;
+        else if ((character === '}' || character === ']') && --depth === 0) {
+          scan++;
+          events.push(line.slice(start, scan));
+          line = line.slice(scan);
+          glued = undefined;
+          break;
+        }
+      }
+      if (glued) {
+        Object.assign(glued, { scan, depth, quoted, escaped });
+        if (line.length - start > maxEventChars) throw new ModelRequestError('Model SSE event exceeds size limit');
+        break;
+      }
+    }
+    return events;
   }
   try {
     while (true) {
       const { value, done } = await waitForIO(() => reader.read());
-      // EOF is not a blank line. In particular, never manufacture a terminal event at EOF.
-      if (done) { decoder.decode(); break; }
-      const chunk = decoder.decode(value, { stream: true });
-      if (!chunk) continue;
-      let start = skipLF && chunk[0] === '\n' ? 1 : 0;
+      const chunk = done ? decoder.decode() : decoder.decode(value, { stream: true });
+      let start = !done && skipLF && chunk[0] === '\n' ? 1 : 0;
       skipLF = false;
-      const breaks = /\r\n|[\r\n]/g;
+      const breaks = /\r\n|\r|\n/g;
       breaks.lastIndex = start;
       let match;
       while ((match = breaks.exec(chunk))) {
-        append(chunk.slice(start, match.index));
+        line += chunk.slice(start, match.index);
         start = breaks.lastIndex;
-        skipLF = start === chunk.length && match[0] === '\r';
-        const event = accept();
+        if (!done && match[0] === '\r' && start === chunk.length) skipLF = true;
+        const event = accept(line);
+        line = ''; resetGlued();
         if (event !== undefined) yield event;
+        breaks.lastIndex = start;
       }
-      append(chunk.slice(start));
+      // `done` only flushes the decoder; EOF alone is not an SSE separator.
+      if (done) break;
+      line += chunk.slice(start);
+      for (const event of gluedEvents()) yield event;
+      if (line.length > maxEventChars) throw new ModelRequestError('Model SSE event exceeds size limit');
+      // EOF alone is not an SSE separator. Only the explicitly supported glued
+      // frame form above may complete without a normal blank line.
     }
   } finally {
     await reader.cancel().catch(() => {});
@@ -180,6 +230,9 @@ export function textValue(value) {
   return typeof value === 'string' ? value : JSON.stringify(value ?? '');
 }
 
+/** OpenAI-compatible providers reject empty or overlong function names. */
+export const validFunctionName = value => typeof value === 'string' && value.length > 0 && value.length <= 128;
+
 export function messageParts(message) {
   return typeof message.content === 'string' ? [{ type: 'text', text: message.content }] : message.content ?? [];
 }
@@ -196,15 +249,15 @@ export function explicitEffort(effort) {
  * original Harness convention (it summarizes and replays by modelName); grokbot.* lets
  * each format replay only reasoning it can read.
  */
-export function reasoningProviderOptions({ format, model, summarized = false, itemId, emptyThinking = false }) {
+export function reasoningProviderOptions({ format, model, providerId, summarized = false, itemId, emptyThinking = false }) {
   return { cursor: { modelName: model, ...(summarized ? { isAlreadySummarizedThinking: true } : {}) },
-    grokbot: { format, model, ...(itemId ? { itemId } : {}), ...(emptyThinking ? { emptyThinking: true } : {}) } };
+    grokbot: { format, model, ...(providerId ? { providerId } : {}), ...(itemId ? { itemId } : {}), ...(emptyThinking ? { emptyThinking: true } : {}) } };
 }
 
 export function reasoningOrigin(part) {
   const own = part.providerOptions?.grokbot ?? part.experimental_providerMetadata?.grokbot;
   const cursor = part.providerOptions?.cursor ?? part.experimental_providerMetadata?.cursor;
-  return { format: own?.format, model: own?.model ?? cursor?.modelName, itemId: own?.itemId,
+  return { format: own?.format, model: own?.model ?? cursor?.modelName, providerId: own?.providerId, itemId: own?.itemId,
     summarized: cursor?.isAlreadySummarizedThinking === true, phase: own?.phase, emptyThinking: own?.emptyThinking === true };
 }
 
@@ -287,7 +340,7 @@ function isRepeatedDelivery(calls, messages) {
     Boolean(sent[0].toolCallId) && parts[0].toolCallId === sent[0].toolCallId && receipt.id === sent[0].toolCallId;
 }
 
-export function* streamToolCalls(calls, messages) {
+export function* streamToolCalls(calls, messages, signal) {
   if (new Set(calls.map(call => call.toolCallId)).size !== calls.length) throw new ModelRequestError('Duplicate model tool call ID');
   if (isRepeatedDelivery(calls, messages)) {
     throw new ModelRequestError('The model requested the same text that was already delivered. Stopped this turn before sending it again.',
@@ -295,6 +348,10 @@ export function* streamToolCalls(calls, messages) {
   }
   const discard = recordToolCallOrder(calls);
   let handedOff = 0;
+  const discardUnhanded = () => {
+    for (let i = handedOff; i < calls.length; i++) discard(calls[i].toolCallId);
+  };
+  signal?.addEventListener('abort', discardUnhanded, { once: true });
   try {
     for (const call of calls) {
       // The Harness consumes one argument stream at a time; serialize parallel calls.
@@ -305,7 +362,8 @@ export function* streamToolCalls(calls, messages) {
     }
   } finally {
     // Already delivered calls still need their ordering entries until journal execution.
-    for (let i = handedOff; i < calls.length; i++) discard(calls[i].toolCallId);
+    signal?.removeEventListener('abort', discardUnhanded);
+    discardUnhanded();
   }
 }
 

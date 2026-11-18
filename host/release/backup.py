@@ -202,13 +202,21 @@ def inspect_containers(ids):
     labels = label_fields('.Config.Labels', (PROJECT_LABEL, 'com.docker.compose.service', 'com.docker.compose.oneoff'))
     # Docker's resolved mount list omits VolumeOptions.Subpath. Project only the affected
     # container destinations; never request HostConfig or volume driver options wholesale.
-    subpaths = ('[{{$sep := ""}}{{range .HostConfig.Mounts}}{{if and .VolumeOptions .VolumeOptions.Subpath}}'
-                '{{$sep}}{{json .Target}}{{$sep = ","}}{{end}}{{end}}]')
+    # `docker inspect` retries a template that fails on its typed structs against the raw JSON,
+    # with missing keys as errors; `.Id` and `index` on a struct fail there, so this template
+    # always reads the raw JSON. The daemon omits empty fields from it: HostConfig.Mounts on
+    # containers created with Binds (as Compose 2.40 does), VolumeOptions or Subpath on plain
+    # volume mounts. `index` reads such a key as empty instead of failing the inspection.
+    subpaths = ('[{{$sep := ""}}{{range index .HostConfig "Mounts"}}{{$target := index . "Target"}}'
+                '{{with index . "VolumeOptions"}}{{if index . "Subpath"}}{{$sep}}{{json $target}}{{$sep = ","}}{{end}}{{end}}{{end}}]')
     fmt = ('{"Id":{{json .Id}},"Image":{{json .Image}},"State":{"Status":{{json .State.Status}}},'
-           '"Labels":'+labels+',"Declared":{{json .Config.Volumes}},"Mounts":{{json .Mounts}},"SubpathTargets":'+subpaths+'}')
+           '"Labels":'+labels+',"Declared":{{json (index .Config "Volumes")}},"Mounts":{{json .Mounts}},'
+           '"SubpathTargets":'+subpaths+'}')
     records = [json.loads(line) for line in output('inspect', '--format', fmt, *ids).splitlines()] if ids else []
     if {c['Id'] for c in records} != set(ids):
         raise ValueError('Container inventory changed during inspection.')
+    for record in records:
+        record['Mounts'] = record['Mounts'] or []
     return records
 
 

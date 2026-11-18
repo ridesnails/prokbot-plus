@@ -274,11 +274,9 @@ export async function createSelfHostServer(options = {}) {
     validateAgentId(agentId);
     const status = await hostStatus();
     check(status.connected, 503, "Host 暂不可用，无法读取 Bot 资料库");
-    check(
-      status.agents.some((agent) => agent.id === agentId),
-      404,
-      "Bot 不存在",
-    );
+    const agent = status.agents.find((item) => item.id === agentId);
+    check(agent, 404, "Bot 不存在");
+    return agent;
   }
   async function adminRoutes(request, response, path, origin) {
     const method = request.method;
@@ -400,6 +398,16 @@ export async function createSelfHostServer(options = {}) {
         200,
         await models.test(await jsonBody(request)),
       );
+    }
+    const summarize = /^\/admin\/api\/agents\/([a-f0-9-]{1,128})\/summarize$/.exec(path);
+    if (method === 'POST' && summarize) {
+      const agent = await verifyAgent(summarize[1]);
+      check(!agent.isRunning, 409, 'Bot 正在运行，请在任务结束后再压缩');
+      limiter.check(`manual-summary:${summarize[1]}`, 4, 10 * 60_000);
+      const result = await internalHostClient(hostUrl, internalToken)('localApplicationRpc', {
+        action: 'grokbot.manual-summary', agentId: summarize[1],
+      });
+      return sendJson(response, 200, { ...result, message: '上下文已压缩' });
     }
     if (method === "POST" && path === "/admin/api/pairing-keys")
       return sendJson(response, 201, await auth.createPairing());

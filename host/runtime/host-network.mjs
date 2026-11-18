@@ -4,9 +4,10 @@ import http2 from 'node:http2';
 import { syncBuiltinESMExports } from 'node:module';
 
 /** Host background services may reach only local endpoints and the configured model. */
-export function installHostNetworkBoundary(modelBaseUrl, { additionalHosts = [] } = {}) {
-  const modelHost = new URL(modelBaseUrl).hostname;
-  const allowedHosts = new Set(['127.0.0.1', 'localhost', '::1', '[::1]', modelHost, ...additionalHosts]);
+export function installHostNetworkBoundary(modelBaseUrls, { additionalHosts = [] } = {}) {
+  const values = Array.isArray(modelBaseUrls) ? modelBaseUrls : [modelBaseUrls];
+  const modelHosts = values.filter(Boolean).map(value => new URL(value).hostname);
+  const allowedHosts = new Set(['127.0.0.1', 'localhost', '::1', '[::1]', ...modelHosts, ...additionalHosts]);
   const assertAllowed = input => {
     const url = typeof input === 'string' || input instanceof URL ? new URL(input)
       : input instanceof Request ? new URL(input.url) : null;

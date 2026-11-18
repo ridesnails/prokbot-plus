@@ -1,7 +1,7 @@
 // OpenAI Chat Completions format (OpenAI and compatible services such as DeepSeek).
 import { explicitEffort, fileKind, fileText, mediaUrl, messageParts, ModelRequestError, parseEvent, parseToolArguments,
   postWithFallback, providerError, readSse, reasoningOrigin, reasoningProviderOptions, rejectedOption, streamToolCalls, textValue, toolSchema,
-  unsupportedFileNote } from './model-common.mjs';
+  unsupportedFileNote, validFunctionName } from './model-common.mjs';
 
 export const FORMAT = 'openai';
 
@@ -45,9 +45,10 @@ function contentPart(part, role) {
  * Translate CoreMessages without losing screenshots. reasoning_content is replayed only for
  * reasoning this format produced for the same model (DeepSeek needs it during tool use).
  */
-export function convertChatMessages(messages, { model, replayReasoning = true } = {}) {
+export function convertChatMessages(messages, { model, providerId, replayReasoning = true } = {}) {
   const output = [];
   let toolImages = [];
+  const skippedToolCalls = new Set();
   const flushToolImages = () => {
     if (!toolImages.length) return;
     output.push({ role: 'user', content: [{ type: 'text', text: 'Screenshots from the preceding tool results:' }, ...toolImages] });
@@ -59,6 +60,7 @@ export function convertChatMessages(messages, { model, replayReasoning = true } 
     if (message.role === 'tool') {
       for (const part of parts) {
         if (part.type !== 'tool-result' || !part.toolCallId) throw new TypeError('Tool messages require tool-result parts and toolCallId');
+        if (skippedToolCalls.has(part.toolCallId)) continue;
         const extra = part.experimental_content ?? [];
         const fallback = extra.filter(p => p.type === 'text').map(p => p.text).join('\n');
         output.push({ role: 'tool', tool_call_id: part.toolCallId, content: part.result === undefined ? fallback : textValue(part.result) });
@@ -70,10 +72,12 @@ export function convertChatMessages(messages, { model, replayReasoning = true } 
         if (p.type !== 'reasoning' || !p.text) return false;
         const origin = reasoningOrigin(p);
         // Legacy parts carry no origin; signed parts belong to another API format.
-        return origin.format ? origin.format === FORMAT && (!model || origin.model === model) : !p.signature;
+        return origin.format ? origin.format === FORMAT && (!model || origin.model === model) &&
+          (!origin.providerId || !providerId || origin.providerId === providerId) : !p.signature;
       }).map(p => p.text).join('') : '';
-      const calls = parts.filter(p => p.type === 'tool-call').map(p => ({
+      const calls = parts.filter(p => p.type === 'tool-call' && validFunctionName(p.toolName)).map(p => ({
         id: p.toolCallId, type: 'function', function: { name: p.toolName, arguments: textValue(p.args ?? {}) } }));
+      for (const part of parts) if (part.type === 'tool-call' && !validFunctionName(part.toolName) && part.toolCallId) skippedToolCalls.add(part.toolCallId);
       output.push({ role: 'assistant', content: content || (calls.length ? null : ''),
         ...(reasoning ? { reasoning_content: reasoning } : {}), ...(calls.length ? { tool_calls: calls } : {}) });
     } else if (['user', 'system', 'developer'].includes(message.role)) {
@@ -98,7 +102,7 @@ const OPTIONAL = ['stream_options', 'reasoning_effort', 'thinking', 'max_tokens'
 
 /** One streamed Chat Completions turn; yields Harness stream parts, returns the assembled message. */
 export async function* chatTurn(context) {
-  const { fetchImpl, endpoint, apiKey, headers, model, messages, tools, effort, maxTokens, requestOptions, signal, waitForIO, state,
+  const { fetchImpl, endpoint, apiKey, headers, model, messages, tools, effort, maxTokens, requestOptions, signal, waitForIO, state, providerId,
     notifyRequest, onModel, onId, onUsage } = context;
   const functions = convertChatTools(tools);
   const { http } = await postWithFallback({ fetchImpl, url: endpoint, apiKey, signal, waitForIO, state, optional: OPTIONAL,
@@ -116,13 +120,13 @@ export async function* chatTurn(context) {
     build: () => {
       const limit = maxTokens === undefined ? undefined : maxTokensParameter(model, state.dropped);
       return { ...requestOptions, ...chatReasoning(model, effort), model,
-        messages: convertChatMessages(messages, { model, replayReasoning: !state.stripReasoning }),
+        messages: convertChatMessages(messages, { model, providerId, replayReasoning: !state.stripReasoning }),
         stream: true, stream_options: { ...requestOptions?.stream_options, include_usage: true },
         ...(functions.length ? { tools: functions } : {}), ...(limit ? { [limit]: maxTokens } : {}) };
     } });
   notifyRequest(http.headers.get('x-request-id') ?? http.headers.get('request-id'));
   let id, responseModel = model, text = '', reasoning = '', rawUsage = {}, finishReason, receivedChoice = false, receivedDone = false;
-  const toolCalls = new Map(), options = () => ({ providerOptions: reasoningProviderOptions({ format: FORMAT, model: responseModel }) });
+  const toolCalls = new Map(), options = () => ({ providerOptions: reasoningProviderOptions({ format: FORMAT, model: responseModel, providerId }) });
   for await (const data of readSse(http.body, { waitForIO })) {
     signal.throwIfAborted();
     if (data.trim() === '[DONE]') { receivedDone = true; break; }
@@ -162,10 +166,10 @@ export async function* chatTurn(context) {
   if (reasoning) content.push({ type: 'reasoning', text: reasoning, ...options() });
   if (text) content.push({ type: 'text', text });
   const calls = [...toolCalls.entries()].sort(([a], [b]) => a - b).map(([, call]) => {
-    if (!call.id || !call.name) throw new ModelRequestError('Incomplete model tool call identity');
+    if (!call.id || !validFunctionName(call.name)) throw new ModelRequestError('Model response included an invalid function name');
     return { type: 'tool-call', toolCallId: call.id, toolName: call.name, args: parseToolArguments(call.name, call.arguments) };
   });
-  yield* streamToolCalls(calls, messages);
+  yield* streamToolCalls(calls, messages, signal);
   content.push(...calls);
   return { id, model: responseModel, content, toolCalls: calls.length, usage: rawUsage };
 }

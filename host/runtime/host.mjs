@@ -13,9 +13,12 @@ import { loadExecutionNode, connectExecutionNode } from '../server/execution-nod
 import { writePrivate } from '../server/storage.mjs';
 import { decorateLocalSharingApi } from './sharing-import.mjs';
 import { installLocalPromptPolicy } from './prompt-runtime.mjs';
+import { summarizeAgent } from './host-summarize.mjs';
+import { installModelRejectionGuard } from './model-rejection-guard.mjs';
 
 const stateDir = process.env.GROKBOT_STATE_DIR ?? '/research/state';
 const originalDir = process.env.GROKBOT_ORIGINAL_HOST ?? '/research/original-host';
+installModelRejectionGuard();
 Object.assign(process.env, {
   SAND_DATA_ROOT: join(stateDir, 'host-data'),
   SAND_BACKEND_URL: 'http://127.0.0.1:9',
@@ -41,7 +44,7 @@ if (internalToken !== undefined && !/^[A-Za-z0-9_-]{32,256}$/.test(internalToken
 const allowedHosts = process.env.GROKBOT_BOX_HOST ? [process.env.GROKBOT_BOX_HOST] : [];
 if (process.env.GROKBOT_NOTIFICATION_URL) allowedHosts.push(new URL(process.env.GROKBOT_NOTIFICATION_URL).hostname);
 if (model.policy.mode === 'adaptive') allowedHosts.push('api.typesafe.ai');
-installHostNetworkBoundary(model.baseUrl, { additionalHosts: allowedHosts });
+installHostNetworkBoundary(model.modelBaseUrls ?? model.baseUrl, { additionalHosts: allowedHosts });
 const require = createRequire(import.meta.url);
 const recovered = process.env.GROKBOT_RECOVERED_CORE === '1';
 let libraryPath = resolve(stateDir, 'host-library.cjs'), repaired;
@@ -86,8 +89,12 @@ process.once('SIGINT', () => void stop('SIGINT'));
 try {
   await host.start();
   computers = observeHostComputers(host.getLocalExecBridge());
+  const localApplicationRpc = args => {
+    if (args?.action === 'grokbot.manual-summary') return summarizeAgent(host, library, args.agentId);
+    return host.requireHostExtensions().api('mcp').applicationRpc(args);
+  };
   gateway = await library.startGatewayServer({
-    api: decorateLocalSharingApi({ api: { ...withLibraryCleanup(host.getApi(), host, library), localApplicationRpc: args => host.requireHostExtensions().api('mcp').applicationRpc(args) }, host }), subscribe: listener => host.subscribe(listener),
+    api: decorateLocalSharingApi({ api: { ...withLibraryCleanup(host.getApi(), host, library), localApplicationRpc }, host }), subscribe: listener => host.subscribe(listener),
     getHealth: () => host.getHealth(), startedAt: host.startedAt,
     host: process.env.GROKBOT_HOST_BIND ?? '0.0.0.0', port: Number(process.env.GROKBOT_HOST_PORT ?? 1340),
     ...(internalToken ? { authToken: internalToken } : {}),

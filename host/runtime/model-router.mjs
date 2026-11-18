@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { TIERS, reasoningOptions, validatePolicy } from './model-policy.mjs';
 import { recordUsage } from './usage-ledger.mjs';
 import { contextPolicyFor } from './context-policy.mjs';
+import { modelRouteForAgent } from './model-routing.mjs';
 
 const effortCriteria = {
   none: 'No deliberate reasoning is needed.', minimal: 'Only a brief check is needed.', low: 'Quick, straightforward reasoning is enough.',
@@ -46,7 +47,17 @@ export async function classifyTask({ apiKey, model = 'jev-latest', state, policy
   }));
   return { difficulty: answer.choice, confidence: answer.confidence, efforts, model: data.model ?? model, usage: data.usage };
 }
-export function createModelRouter(config, { fetchImpl = fetch, onDecision = () => {} } = {}) {
+export function createModelRouter(config, { fetchImpl = fetch, onDecision = () => {}, agentId } = {}) {
+  if (config.modelRouting) {
+    const route = modelRouteForAgent(config.modelRouting, agentId);
+    const select = candidate => ({ ...candidate,
+      requestOptions: reasoningOptions(candidate.model, candidate.effort) });
+    const selected = { ...select(route), fallbacks: route.fallbacks.map(select) };
+    return async ({ signal } = {}) => {
+      signal?.throwIfAborted();
+      return selected;
+    };
+  }
   const policy = validatePolicy(config.policy, config.model);
   let cachedKey, cachedDecision;
   return async ({ messages, signal }) => {

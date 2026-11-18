@@ -14,7 +14,7 @@ is distributed for noncommercial purposes only, and identifies its
 modifications below. The noncommercial conditions also apply to everything
 ProkBot Plus adds; none of it is offered under terms that allow commercial use.
 
-Modifications made in ProkBot Plus (2026-11-07 to 2026-11-16)
+Modifications made in ProkBot Plus (2026-11-07 to 2026-11-18)
 --------------------------------------------------------------
 
 1. Windows x64 client (new)
@@ -60,9 +60,25 @@ Modifications made in ProkBot Plus (2026-11-07 to 2026-11-16)
      openai-chat.mjs, model-common.mjs (new); model-session.mjs,
      model-policy.mjs, model-router.mjs, model-errors.mjs,
      model-observation.mjs, config.mjs, host/server/models.mjs, index.mjs,
-     public/model.js, public/locales-en.js (changed).
+     public/model.js, public/locales-en.js and public/ids.js (changed or new).
    - "minimal" reasoning effort, reasoning provenance tags, optional-parameter
      fallback, connection test and auto review for all three formats.
+   - Provider/model/format-scoped reasoning replay, ordered primary/backup
+     routing with upstream-I/O idle deadlines and explicit quota exhaustion
+     classification, incremental large-event SSE parsing and restartable client
+     stream subscriptions. A backup sharing a key is skipped only when the
+     provider explicitly reports quota exhaustion; ordinary 503, timeout and
+     network failures may still try that backup.
+   - Per-Bot model routes and profiles (host/runtime/model-routing.mjs, contributed
+     through pull request #2), the
+     rewritten model page, guarded manual summarization (host-summarize.mjs),
+     threshold compaction, and rejection of malformed provider function names
+     (model-rejection-guard.mjs). The Harness turn-run recipe injects the Bot ID
+     into both the main and summarization sessions.
+   - The Host patch build verifies each prepared reliability file against its
+     protected manifest before it creates an image; the executor repair updates
+     both the generated file and its manifest hash. The prepared reliability
+     manifest is rejected when any entry no longer matches its file.
 
 3. Auto review: retry once on a malformed classification and log failures
    (host/runtime/host-auto-review.mjs).
@@ -77,7 +93,9 @@ Modifications made in ProkBot Plus (2026-11-07 to 2026-11-16)
 
 5. Message order: messages from one model response are delivered in the order
    the model wrote them (host/runtime/reliability/tool-order.mjs (new),
-   tool-journal.mjs, host/runtime/model-common.mjs).
+   tool-journal.mjs, host/runtime/model-common.mjs). The reliability recipes
+   for the tool-stream executor and Harness turn-run shell contain the guarded
+   failure and Bot-ID changes described above.
    Subsequent model steps that immediately repeat an acknowledged single
    plain-text delivery stop before another send, without changing history
    (the three adapters, model-common.mjs and model-errors.mjs).
@@ -196,6 +214,19 @@ instead of leaving it blank.
 ProkBot Plus 1.3.0 (2026-11-16): Windows and Android default to the official
 1.1.0 interface and fall back to 0.71.2 (items 1 and 10). The Host is
 unchanged. Official programs and generated clients are not distributed.
+
+ProkBot Plus 1.3.1 (2026-11-17): host/release/backup.py reads the Docker
+inspect keys that the daemon may omit (HostConfig.Mounts, VolumeOptions,
+Subpath) with index, so backup and update work on Docker 29 with Compose 2.40
+(item 17). Updated host/server/package-lock.json (hono, @hono/node-server,
+body-parser) and the bundled mac/patchers/desktop/node_modules (@electron/asar
+4.3.2 with glob and minimatch).
+
+Tool-call validation (2026-11-15):
+`host/runtime/openai-chat.mjs` and `host/runtime/openai-responses.mjs` omit
+malformed historical function calls and their outputs during replay, and reject
+malformed new function calls before they are persisted. This prevents a
+provider's invalid function name from repeatedly breaking later turns.
 
 Third-party components
 ----------------------

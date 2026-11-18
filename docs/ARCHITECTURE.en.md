@@ -51,7 +51,7 @@ Run `node ci/check-inputs.mjs` from the full repository to see the versions actu
 | --- | --- | --- | --- |
 | 🔁 Sign-in | Official account | No account needed. The Host admin page creates a 6-character pairing code, and the client connects with the Host address and the pairing code | Nothing |
 | 🔁 Host and execution computer | Official cloud | Host built for the server architecture; desktop remains original | amd64 / arm64 Linux; the amd64 desktop can be deployed separately |
-| 🔁 Chat model | Official models, with automatic tier selection | Models you choose, through three API formats: OpenAI Chat Completions, OpenAI Responses and Anthropic Messages. The Jev classifier can choose the model and thinking effort automatically | A model API address and API key |
+| 🔁 Chat model | Official models, with automatic tier selection | Add several model services and profiles through OpenAI Chat Completions, OpenAI Responses, or Anthropic Messages. A default or per-Bot route chooses model, thinking effort, and backup order; no Jev key is needed | A model API address and API key |
 | 🟢 Computer and browser use | Original Agent | Kept as is | A model with vision |
 | 🟢 Memory, context compaction, scheduled tasks | Original Agent, partly relying on official services | Kept, now running on your model and local timers; context compaction is configurable | Nothing |
 | 🟢 Approvals, human takeover, interactive forms | Original | Kept as is | Nothing |
@@ -130,13 +130,14 @@ The original sends model requests to an official classifier, which decides which
 | File | Role |
 | --- | --- |
 | `host/runtime/model-session.mjs` | Entry point. Dispatches by `apiFormat` (`openai` / `openai-responses` / `anthropic`) |
+| `host/runtime/model-routing.mjs` | Validates multi-service/profile configuration and resolves default or Bot override routes with backup chains |
 | `host/runtime/openai-chat.mjs` | Chat Completions. Appends `/chat/completions` to the address |
 | `host/runtime/openai-responses.mjs` | Responses. Appends `/responses` to the address. Stateless calls |
 | `host/runtime/anthropic-messages.mjs` | Messages. The address can be the root address or end in `/v1` |
 | `host/runtime/model-common.mjs` | SSE parsing, error normalization, image and file conversion, reasoning source tags, optional parameter fallback |
 | `host/runtime/model-policy.mjs` | Thinking effort levels and the reference table of levels for each model |
-| `host/runtime/model-router.mjs` | Manual mode, or Jev picks the model and effort by task difficulty |
-| `host/server/models.mjs` | Saves the config, reads model lists, runs connection tests (on the same code path as real conversations) |
+| `host/runtime/model-router.mjs` | Chooses a Bot route directly for multi-service configuration; legacy configuration can still be manual or use Jev by task difficulty |
+| `host/server/models.mjs` | Saves multi-service/profile/route configuration, reads model lists, and runs connection tests (on the same code path as real conversations) |
 
 | Capability | OpenAI Chat | OpenAI Responses | Anthropic Messages |
 | --- | --- | --- | --- |
@@ -146,7 +147,10 @@ The original sends model requests to an official classifier, which decides which
 | Output limit | Chooses between `max_completion_tokens` and `max_tokens` automatically | `max_output_tokens` | Per-model limit |
 
 - **Thinking effort**: the levels are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, and `default` (no effort parameter is sent). For the levels a model supports, the values returned by the API's `/models` come first. If there are none, the built-in reference table is used.
-- **Reasoning source tags**: reasoning from one format or model can't be read by another. Each piece of reasoning records its format and model in `providerOptions.grokbot`. On replay, only the parts that the current format and model can read are sent back, so switching models in the middle of a conversation doesn't cause errors. Encrypted reasoning without a summary and empty thinking blocks are saved as `redacted-reasoning` and restored on replay.
+- **Multiple services and Bot routes**: a model service holds its API format, address, and key; a model profile binds a service, model ID, supported reasoning efforts, and context policy. The default route applies to Bots without an override, and one Bot can define a primary profile plus up to eight backups in order. This direct routing does not call Jev; a subagent inherits its parent Bot's `agentId` and therefore the same Bot route. Keys stay in private `model.env`, and the Host network boundary admits every configured model-service host only.
+- **Primary/backup switching**: before the primary has emitted text or a tool call, 402, 408, 429, 5xx, network errors, and upstream-I/O-idle timeouts move to the next backup; already-streamed reasoning may still switch. The Host I/O deadline is 300 seconds by default and runs only while waiting for HTTP/SSE I/O. The Harness also has a 150-second first-token stall deadline, so most first-token stalls end through that path first. A 400, authentication/configuration error, or caller-owned cancellation/timeout does not trigger a Host switch. Explicit API-key quota exhaustion is non-retryable. A backup sharing the same key is skipped only for quota exhaustion; a 503, network error or timeout may still try another model under that key. Once a backup takes over, later steps in the same tool loop stay on it. After text or a tool call, it never switches, avoiding duplicate user-visible output and tool side effects; fallback events are written to the model routing log.
+- **Reasoning source tags**: reasoning from one API format or provider cannot be read by another. Each piece records its format and provider ID. Anthropic signed thinking is also checked against the provider, but a date-qualified model snapshot or a gateway-rewritten model name is not treated as incompatible. Encrypted reasoning without a summary and empty thinking blocks are saved as `redacted-reasoning` and restored on replay.
+- **Context capacity**: context and summary thresholds are imported only when a provider catalog supplies the capacity. An unknown model is `0`; the Host does not guess a context window and does not enable automatic compaction from invented values. A non-zero capacity and summary threshold set by an administrator enables Harness automatic summarization, so an older single-model `model.env` that already sets both values will start compacting at that threshold after upgrade; this is a behavior change.
 - **Optional parameter fallback**: when a provider rejects an optional parameter with a 400 (for example `reasoning.summary`, `max_tokens`, `fallbacks`), the parameter is removed and the request is retried once. This is remembered for the rest of the session, and `[model] … retrying without …` is printed in the log. Replayed reasoning that is no longer valid is handled the same way.
 - **Known gateway issue**: some aggregator gateways return `native_thinking_replay_mismatch` for any request with tools when they forward Claude in the Responses format. This is a gateway problem. Use the Anthropic format for Claude.
 

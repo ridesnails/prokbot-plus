@@ -51,6 +51,88 @@ function ioDeadline(controller, ms) {
   };
 }
 
+function candidateKey(candidate) {
+  // Stable IDs keep provider URLs and credentials out of adaptation state and logs.
+  return candidate.profileId ?? `${candidate.apiFormat}\n${candidate.baseUrl}\n${candidate.model}`;
+}
+
+function requestCandidate(value, defaults) {
+  const candidate = {
+    baseUrl: value?.baseUrl ?? defaults.baseUrl,
+    apiKey: value?.apiKey ?? defaults.apiKey,
+    apiFormat: value?.apiFormat ?? defaults.apiFormat,
+    model: value?.model ?? defaults.model,
+    effort: value?.effort ?? defaults.effort,
+    efforts: value?.efforts ?? defaults.efforts,
+    requestOptions: value?.requestOptions ?? defaults.requestOptions,
+    contextWindowTokens: value?.contextWindowTokens ?? defaults.contextWindowTokens,
+    summaryThresholdTokens: value?.summaryThresholdTokens ?? defaults.summaryThresholdTokens,
+    profileId: value?.profileId ?? defaults.profileId,
+    profileName: value?.profileName ?? defaults.profileName,
+    providerId: value?.providerId ?? defaults.providerId,
+    providerName: value?.providerName ?? defaults.providerName,
+  };
+  if (typeof candidate.baseUrl !== 'string' || !candidate.baseUrl ||
+      (candidate.apiKey !== undefined && typeof candidate.apiKey !== 'string') ||
+      typeof candidate.model !== 'string' || !candidate.model.trim() ||
+      !FORMATS[candidate.apiFormat]) {
+    throw new TypeError('selected model must include a configured provider, format, and model');
+  }
+  return candidate;
+}
+
+function quotaExhausted(error) {
+  const code = typeof error?.code === 'string' ? error.code : '';
+  if (code === 'API_KEY_QUOTA_EXHAUSTED' || code === 'insufficient_quota') return true;
+  // A bare 402 is a balance error, but a 429 or a model-specific quota
+  // message can be temporary and must remain retryable.
+  if (error?.status === 402 && !code) return true;
+  return /(?:api[ _-]?key|account)\s+(?:quota|credit|balance)\s+(?:is\s+)?(?:exhausted|used up|depleted|exceeded)|(?:账户|账户余额|API\s*额度|额度)\s*(?:已)?\s*(?:用完|耗尽|不足)/i.test(error?.message ?? '');
+}
+
+function retryableFailure(error, { controller, upstreamSignal, idleTimedOut }) {
+  if (controller.signal.aborted || upstreamSignal?.aborted) return idleTimedOut();
+  if (error?.name === 'TimeoutError') return true;
+  if (error?.name === 'AbortError') return false;
+  if (error?.status === 408 || error?.status === 402 || error?.status === 429 ||
+      (Number.isInteger(error?.status) && error.status >= 500 && error.status <= 599)) return true;
+  if (Number.isInteger(error?.status) || error instanceof ModelRequestError) return false;
+  return error?.name === 'TypeError' || ['ECONNABORTED', 'ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH',
+    'ENETUNREACH', 'ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET'].includes(error?.code);
+}
+
+function distinctCredentialCandidates(candidates, { exhausted = false } = {}) {
+  if (!exhausted) return candidates;
+  const keys = new Set();
+  return candidates.filter(candidate => {
+    // A fallback sharing a key has the same quota and cannot recover an exhausted account.
+    if (keys.has(candidate.apiKey)) return false;
+    keys.add(candidate.apiKey);
+    return true;
+  });
+}
+
+function skippedCredentialCandidates(candidates) {
+  const keys = new Set();
+  return candidates.filter(candidate => {
+    const duplicate = keys.has(candidate.apiKey);
+    keys.add(candidate.apiKey);
+    return duplicate;
+  });
+}
+
+function publicCandidate(candidate) {
+  return { profileId: candidate.profileId, profileName: candidate.profileName,
+    providerId: candidate.providerId, providerName: candidate.providerName,
+    apiFormat: candidate.apiFormat, model: candidate.model };
+}
+
+function compactionCapabilities({ contextWindowTokens, summaryThresholdTokens }) {
+  if (!Number.isSafeInteger(contextWindowTokens) || !Number.isSafeInteger(summaryThresholdTokens) ||
+      summaryThresholdTokens <= 0 || summaryThresholdTokens >= contextWindowTokens) return {};
+  return { supportsSelfSummary: true, earlyCompactionContextTokenThreshold: summaryThresholdTokens };
+}
+
 /** Usage arrives normalized to OpenAI Chat fields from every format. */
 function usageValues(raw = {}, contextWindowTokens = 0) {
   const count = value => Number.isFinite(value) && value >= 0 ? value : 0;
@@ -66,7 +148,8 @@ function usageValues(raw = {}, contextWindowTokens = 0) {
 
 export function createModelSession({ baseUrl, apiKey, model, onRequestId, apiFormat = 'openai', policy,
   fetchImpl = globalThis.fetch, headers = {}, requestOptions = {}, contextWindowTokens = 0,
-  summaryThresholdTokens = 0, mapError = error => error, onUsage = async () => {}, selectRequest, idleTimeoutMs = 300_000 } = {}) {
+  summaryThresholdTokens = 0, mapError = error => error, onUsage = async () => {}, selectRequest,
+  onFallback = async () => {}, idleTimeoutMs = 300_000, profileId, providerId, efforts } = {}) {
   if (typeof model !== 'string' || !model.trim() || model !== model.trim() || model.length > 256 || /[\r\n\0]/.test(model)) {
     throw new TypeError('model must be an explicitly selected, nonempty model ID');
   }
@@ -78,14 +161,20 @@ export function createModelSession({ baseUrl, apiKey, model, onRequestId, apiFor
   if (!Number.isSafeInteger(contextWindowTokens) || contextWindowTokens < 0) {
     throw new TypeError('contextWindowTokens must be a nonnegative integer');
   }
-  const format = FORMATS[apiFormat];
-  if (!format) throw new TypeError(`apiFormat must be one of ${API_FORMATS.join(', ')}`);
-  const endpoint = format.endpoint(baseUrl);
+  if (!FORMATS[apiFormat]) throw new TypeError(`apiFormat must be one of ${API_FORMATS.join(', ')}`);
   // Adaptive routing may select models with different parameter and replay support.
   const adaptations = new Map();
+  // Once a fallback accepts a call, keep using it for the rest of this session.
+  // The Harness opens a session per turn, so the next turn tries the primary
+  // again. Returning to a primary that expects its own signed thinking within
+  // the tool loop would make the next step invalid when the fallback stripped it.
+  let preferredKey;
+  const defaults = { baseUrl, apiKey, apiFormat, model, requestOptions, contextWindowTokens,
+    summaryThresholdTokens, profileId, providerId, efforts };
   const effortsFor = id => policy?.models?.find(entry => entry.id === id)?.efforts;
   let resolvedModelId;
   let selectedContext = { contextWindowTokens, summaryThresholdTokens };
+  let earlyCompaction;
 
   class Executor {
     constructor(initialMessages, trackModel) {
@@ -111,12 +200,31 @@ export function createModelSession({ baseUrl, apiKey, model, onRequestId, apiFor
       const trackModel = this.trackModel;
       async function* produce() {
         let notified = false;
-        let recordedUsage, reportedModel = model, reportedId, selectedEffort;
-        let usageWrite;
+        let recordedUsage, reportedModel = model, reportedId, selectedEffort, reportedCandidate;
+        let usageWrite, usagePending = false;
+        const attemptUsages = [];
+        const snapshotUsage = () => {
+          if (!recordedUsage) return;
+          attemptUsages.push({
+            raw: recordedUsage,
+            model: reportedModel,
+            requestId: reportedId,
+            effort: selectedEffort,
+            profileId: reportedCandidate?.profileId,
+            providerId: reportedCandidate?.providerId,
+          });
+          recordedUsage = undefined;
+        };
         const recordUsage = () => {
-          if (recordedUsage) usageWrite ??= Promise.resolve().then(() =>
-            onUsage({ raw: recordedUsage, model: reportedModel, requestId: reportedId, effort: selectedEffort })
-          ).catch(error => console.error(`[usage] ${error.message}`));
+          snapshotUsage();
+          if (!usageWrite || usagePending) {
+            usagePending = true;
+            const queued = usageWrite ?? Promise.resolve();
+            usageWrite = queued.then(async () => {
+              for (const usage of attemptUsages.splice(0)) await onUsage(usage);
+            }).catch(error => console.error(`[usage] ${error.message}`))
+              .finally(() => { usagePending = false; });
+          }
           return usageWrite;
         };
         const notifyRequest = id => {
@@ -127,27 +235,118 @@ export function createModelSession({ baseUrl, apiKey, model, onRequestId, apiFor
         };
         try {
           controller.signal.throwIfAborted();
-          const selected = selectRequest && await waitForIO(() => selectRequest({ messages, signal: controller.signal }));
-          const requestContext = { contextWindowTokens: selected?.contextWindowTokens ?? contextWindowTokens,
-            summaryThresholdTokens: selected?.summaryThresholdTokens ?? summaryThresholdTokens };
-          if (trackModel) selectedContext = requestContext;
-          const selectedModel = selected?.model ?? model;
-          if (!adaptations.has(selectedModel)) adaptations.set(selectedModel, { dropped: new Set(), stripReasoning: false, toolImagesAsMessage: false });
-          reportedModel = selectedModel; selectedEffort = selected?.effort;
-          const turn = yield* format.turn({ fetchImpl, endpoint, apiKey, headers, model: selectedModel, messages, tools,
-            effort: selected?.effort ?? selected?.requestOptions?.reasoning_effort, efforts: effortsFor(selectedModel),
-            maxTokens: options.maxTokens, requestOptions, signal: controller.signal, waitForIO, state: adaptations.get(selectedModel), notifyRequest,
-            onModel: value => { reportedModel = value; }, onId: value => { reportedId = value; },
-            onUsage: value => { recordedUsage = value; } });
+          const selected = selectRequest ? await waitForIO(() => selectRequest({ messages, signal: controller.signal })) : undefined;
+          const requested = requestCandidate(selected, defaults);
+          const configured = [requested,
+            ...((selected?.fallbacks ?? []).map(candidate => requestCandidate(candidate, defaults)))];
+          const preferredIndex = preferredKey ? configured.findIndex(candidate => candidateKey(candidate) === preferredKey) : -1;
+          const ordered = preferredIndex > 0
+            ? [configured[preferredIndex], ...configured.filter((_, index) => index !== preferredIndex)]
+            : configured;
+          const primary = ordered[0];
+          let candidates = ordered;
+          const requestContext = { contextWindowTokens: primary.contextWindowTokens,
+            summaryThresholdTokens: primary.summaryThresholdTokens };
+          if (trackModel) { selectedContext = requestContext; earlyCompaction = undefined; }
+          let turn;
+          let activeIterator;
+          for (let attempt = 0; attempt < candidates.length; attempt++) {
+            const candidate = candidates[attempt];
+            const format = FORMATS[candidate.apiFormat];
+            const attemptController = new AbortController();
+            const onCancel = () => attemptController.abort(controller.signal.reason);
+            controller.signal.addEventListener('abort', onCancel, { once: true });
+            const attemptSignal = attemptController.signal;
+            let idleTimedOut = false;
+            attemptSignal.addEventListener('abort', () => {
+              if (attemptSignal.reason?.name === 'TimeoutError') idleTimedOut = true;
+            }, { once: true });
+            const attemptWaitForIO = ioDeadline(attemptController, idleTimeoutMs);
+            const adaptationKey = candidateKey(candidate);
+            if (!adaptations.has(adaptationKey)) adaptations.set(adaptationKey, { dropped: new Set(), stripReasoning: false, toolImagesAsMessage: false });
+            let emittedVisibleOutput = false;
+            recordedUsage = undefined;
+            reportedId = undefined;
+            reportedModel = candidate.model;
+            selectedEffort = candidate.effort;
+            reportedCandidate = candidate;
+            try {
+              const iterator = format.turn({ fetchImpl, endpoint: format.endpoint(candidate.baseUrl), apiKey: candidate.apiKey,
+                headers, model: candidate.model, messages, tools,
+                effort: candidate.effort ?? candidate.requestOptions?.reasoning_effort,
+                efforts: candidate.efforts ?? effortsFor(candidate.model), maxTokens: options.maxTokens,
+                requestOptions: candidate.requestOptions, signal: attemptSignal, waitForIO: attemptWaitForIO,
+                state: adaptations.get(adaptationKey), notifyRequest,
+                providerId: candidate.providerId,
+                onModel: value => { reportedModel = value; }, onId: value => { reportedId = value; },
+                onUsage: value => { recordedUsage = value; } });
+              activeIterator = iterator;
+              while (true) {
+                const next = await iterator.next();
+                if (next.done) { turn = next.value; break; }
+                // Reasoning is hidden. A fallback is still safe until text or a tool call escapes.
+                if (next.value?.type !== 'reasoning') emittedVisibleOutput = true;
+                yield next.value;
+              }
+              activeIterator = undefined;
+              break;
+            } catch (error) {
+              // A cancellation can arrive while onFallback() is still awaiting. Do
+              // not attach another request to an already-canceled controller.
+              controller.signal.throwIfAborted();
+              if (quotaExhausted(error)) {
+                const remaining = candidates.slice(attempt);
+                const skipped = skippedCredentialCandidates(remaining);
+                candidates = distinctCredentialCandidates(candidates, { exhausted: true });
+                const nextDistinct = candidates[attempt + 1];
+                if (skipped.length) {
+                  try {
+                    await onFallback({ from: publicCandidate(candidate), to: nextDistinct ? publicCandidate(nextDistinct) : undefined,
+                      attempt: attempt + 1, reason: 'quota', skipped: skipped.map(publicCandidate) });
+                  } catch (logError) {
+                    console.warn(`[model-session] Unable to record skipped model fallback: ${logError.code ?? logError.name}`);
+                  }
+                }
+              }
+              const next = candidates[attempt + 1];
+              if (emittedVisibleOutput || !next || !retryableFailure(error, {
+                controller: attemptController, upstreamSignal: signal, idleTimedOut: () => idleTimedOut,
+              })) throw error;
+              try {
+                await onFallback({ from: publicCandidate(candidate), to: publicCandidate(next), attempt: attempt + 1,
+                  reason: idleTimedOut ? 'timeout'
+                    : Number.isInteger(error?.status) ? `HTTP ${error.status}` : 'network' });
+              } catch (logError) {
+                console.warn(`[model-session] Unable to record model fallback: ${logError.code ?? logError.name}`);
+              }
+              preferredKey = candidateKey(next);
+              controller.signal.throwIfAborted();
+            } finally {
+              if (activeIterator) {
+                await activeIterator.return().catch(() => {});
+                activeIterator = undefined;
+              }
+              controller.signal.removeEventListener('abort', onCancel);
+              attemptController.abort();
+            }
+          }
+          if (!turn) throw new ModelRequestError('All configured model attempts failed');
           controller.signal.throwIfAborted();
           const responseId = turn.id ?? randomUUID();
           notifyRequest(responseId);
           const timestamp = new Date();
           // Harness interprets maxTokens as context capacity, not the output token limit.
           const values = usageValues(turn.usage, requestContext.contextWindowTokens);
-          if (trackModel) resolvedModelId = turn.model;
+          const compaction = compactionCapabilities(requestContext);
+          if (trackModel) {
+            resolvedModelId = turn.model;
+            earlyCompaction = compaction.earlyCompactionContextTokenThreshold === undefined ? undefined : {
+              threshold: compaction.earlyCompactionContextTokenThreshold,
+              inputTokens: values.extendedUsage.inputTokens,
+            };
+          }
           slots.response.resolve({ id: responseId, timestamp, modelId: turn.model,
-            messages: [{ id: responseId, role: 'assistant', content: turn.content }] });
+            messages: [{ id: responseId, role: 'assistant', content: turn.content }], ...compaction });
           slots.usage.resolve(values.usage);
           slots.extendedUsage.resolve(values.extendedUsage);
           slots.providerMetadata.resolve(undefined);
@@ -171,6 +370,7 @@ export function createModelSession({ baseUrl, apiKey, model, onRequestId, apiFor
         }
       }
       const iterator = produce();
+      let closing;
       const cancel = error => {
         signal?.removeEventListener('abort', onAbort);
         if (!settled) { controller.abort(error); fail(controller.signal.reason); }
@@ -178,7 +378,7 @@ export function createModelSession({ baseUrl, apiKey, model, onRequestId, apiFor
       const onAbort = () => {
         cancel(abortError(signal.reason));
         // A paused consumer need not pull again to unlock the reader and record observed usage.
-        void iterator.return().catch(() => {});
+        closing ??= iterator.return().catch(() => {});
       };
       if (signal?.aborted) onAbort();
       else signal?.addEventListener('abort', onAbort, { once: true });
@@ -190,7 +390,10 @@ export function createModelSession({ baseUrl, apiKey, model, onRequestId, apiFor
           controller.signal.throwIfAborted();
           return step;
         },
-        return: value => { cancel(abortError()); return iterator.return(value); },
+        async return(value) {
+          cancel(abortError());
+          return closing ? await closing : iterator.return(value);
+        },
         throw: error => { cancel(error); return iterator.throw(error); },
       };
       return { fullStream, ...Object.fromEntries(Object.entries(slots).map(([key, slot]) => [key, slot.promise])) };
@@ -199,7 +402,7 @@ export function createModelSession({ baseUrl, apiKey, model, onRequestId, apiFor
   return {
     getModelId: () => model,
     getResolvedModelId: () => resolvedModelId,
-    getEarlyCompaction: () => undefined,
+    getEarlyCompaction: () => earlyCompaction && { ...earlyCompaction },
     getLocalContextPolicy: () => ({ ...selectedContext }),
     getExecutor: state => new Executor(state, true),
     getExecutorWithoutResolvedModelTracking: state => new Executor(state, false),

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Prepare the pinned Host locally from an original archive and COPY/ADD patches."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -31,6 +32,30 @@ def extract(source, destination):
                 with archive.extractfile(entry) as src, target.open('wb') as dst:
                     shutil.copyfileobj(src, dst)
                 target.chmod(entry.mode & 0o777)
+
+
+def verify_reliability_manifest(seed):
+    """Reject generated reliability seeds whose manifest no longer matches them."""
+    directory = seed / 'release-reliability'
+    manifest_path = directory / 'manifest.json'
+    if not manifest_path.exists():
+        return
+    manifest = json.loads(manifest_path.read_text())
+    digest = manifest.get('digest')
+    if not isinstance(digest, str) or len(digest) != 64:
+        raise ValueError('Invalid prepared reliability manifest digest')
+    files = manifest.get('files')
+    if not isinstance(files, list):
+        raise ValueError('Invalid prepared reliability manifest files')
+    for entry in files:
+        if not isinstance(entry, dict) or set(entry) != {'name', 'sha256'}:
+            raise ValueError('Invalid prepared reliability manifest entry')
+        name, expected = entry['name'], entry['sha256']
+        if not isinstance(name, str) or Path(name).name != name or not isinstance(expected, str) or len(expected) != 64:
+            raise ValueError('Invalid prepared reliability manifest entry')
+        actual = hashlib.sha256((directory / name).read_bytes()).hexdigest()
+        if actual != expected:
+            raise ValueError('Prepared reliability manifest mismatch: ' + name)
 
 
 def main():
@@ -73,6 +98,7 @@ def main():
             target.parent.mkdir(parents=True, exist_ok=True)
             with target.open('xb') as output:
                 source.write_verified(load(ROOT / 'recipes/host' / record['patch']), output)
+        verify_reliability_manifest(seed)
         args.output.mkdir(mode=0o700)
         shutil.move(str(original), str(args.output / 'original'))
         shutil.move(str(seed), str(args.output / 'seed'))

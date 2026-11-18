@@ -1,5 +1,5 @@
 import { t, locale } from './i18n.js';
-import { icon } from './icons.js';
+import { icon, isBuiltinIcon } from './icons.js';
 
 export const $ = (selector, root = document) => root.querySelector(selector);
 export const all = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -94,11 +94,11 @@ export function toggle(checked, label) {
   return input;
 }
 
-/** A list row: leading tile, title with badges, meta lines and trailing actions. */
-export function item({ tile, image, title, badges = [], meta = [], description, actions = [] }) {
+/** A list row: built-in icon name, image, title with badges, meta lines and trailing actions. */
+export function item({ icon: iconName, tile, image, title, badges = [], meta = [], description, actions = [] }) {
   const row = node('div', 'item'), lead = node('span', 'item-icon'), copy = node('div', 'item-copy');
   if (image) { const img = document.createElement('img'); img.src = image; img.alt = ''; lead.append(img); }
-  else if (tile?.startsWith?.('<svg')) lead.innerHTML = tile;
+  else if (isBuiltinIcon(iconName)) lead.innerHTML = icon(iconName);
   else lead.textContent = [...(tile || title || '·')][0].toUpperCase();
   const heading = node('div', 'item-title'); heading.append(node('span', '', title), ...badges);
   copy.append(heading);

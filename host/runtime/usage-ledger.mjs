@@ -10,10 +10,11 @@ export function usageCounts(raw = {}) {
     cached: count(raw.prompt_cache_hit_tokens ?? raw.prompt_tokens_details?.cached_tokens),
     reasoning: count(raw.completion_tokens_details?.reasoning_tokens) };
 }
-export async function recordUsage(directory, { raw, model, kind = 'chat', effort, requestId, at = new Date() }) {
+export async function recordUsage(directory, { raw, model, kind = 'chat', effort, requestId, profileId, providerId, at = new Date() }) {
   if (!directory || !raw || !Object.keys(raw).length) return;
   const timestamp = at.toISOString();
-  const entry = { id: randomUUID(), at: timestamp, model, kind, effort, requestId, ...usageCounts(raw) };
+  const entry = { id: randomUUID(), at: timestamp, model, kind, effort, requestId,
+    ...(profileId ? { profileId } : {}), ...(providerId ? { providerId } : {}), ...usageCounts(raw) };
   await mkdir(directory, { recursive: true, mode: 0o700 });
   // Each process appends one short JSON line; no read/modify/write race with the admin server.
   await appendFile(join(directory, timestamp.slice(0, 10) + '.jsonl'), JSON.stringify(entry) + '\n', { mode: 0o600 });

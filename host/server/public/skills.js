@@ -58,7 +58,7 @@ export function createSkillsEditor({ api, toast, act }) {
         if (!await confirmAction({ title: t('删除“{0}”？', entry.name), message: t('Bot 将无法再使用此技能。'), action: t('删除') })) return;
         await api(`/admin/api/skills/${entry.id}`, { method: 'DELETE' }); await load();
       }) }]);
-      list.append(item({ tile: icon('book'), title: entry.name, description: entry.description,
+      list.append(item({ icon: 'book', title: entry.name, description: entry.description,
         meta: [`${entry.source.startsWith('plugin:') ? t('应用附带') : entry.source === 'host' ? 'Host' : entry.source} · ${entry.current.slice(0, 8)}`], actions: [enabled, edit, more] }));
     }
   }

@@ -94,7 +94,7 @@ export function createApps(context) {
       run: trigger => act(trigger, () => run(app, action)) }))));
     const valid = /^data:image\/(png|jpeg|webp);base64,/.test(app.iconDataUrl || '');
     const meta = [app.version, Number.isInteger(app.toolCount) && t('{0} 个工具', app.toolCount), app.skills?.length && t('{0} 个技能', app.skills.length)].filter(Boolean);
-    const element = item({ image: valid ? app.iconDataUrl : '', tile: icon(builtin ? 'bolt' : 'plug'), title: name, badges,
+    const element = item({ image: valid ? app.iconDataUrl : '', icon: builtin ? 'bolt' : 'plug', title: name, badges,
       description: appCopy(app.description), meta: meta.length ? [meta.join(' · ')] : [], actions: controls });
     element.classList.add('connector-row'); element.dataset.appId = app.id;
     const content = element.querySelector('.item-copy');

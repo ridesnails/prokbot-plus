@@ -134,6 +134,9 @@ def proc_stat(proc, pid):
 
 
 def usage(proc, root, pid, cid, page):
+    # macOS resolves /var to /private/var. Compare two canonical paths so the
+    # fixture and a real cgroup root use the same containment rule.
+    root = root.resolve()
     memberships = [line[3:] for line in read(proc / str(pid) / 'cgroup').splitlines() if line.startswith('0::/')]
     require(len(memberships) == 1, 'Cannot identify cgroup v2 for project PID')
     group = (root / memberships[0].lstrip('/')).resolve()

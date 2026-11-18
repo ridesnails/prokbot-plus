@@ -5,11 +5,30 @@ export function taskPreview(state) {
   return String(state.at(-1)?.text ?? '').replace(/(?:apikey_|sk-)[A-Za-z0-9_-]{16,}/g, '[redacted]')
     .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [redacted]').replace(/\s+/g, ' ').trim().slice(0, 240);
 }
+function routingTarget(value) {
+  if (!value) return undefined;
+  return {
+    profileId: value.profileId,
+    profileName: value.profileName,
+    providerId: value.providerId,
+    providerName: value.providerName,
+    apiFormat: value.apiFormat,
+    model: value.model,
+  };
+}
+function routingRecord(entry) {
+  const clean = { ...entry };
+  if (clean.from) clean.from = routingTarget(clean.from);
+  if (clean.to) clean.to = routingTarget(clean.to);
+  if (Array.isArray(clean.skipped)) clean.skipped = clean.skipped.map(routingTarget).filter(Boolean);
+  return clean;
+}
 export async function recordRouting(directory, entry) {
   if (!directory) return;
   const at = new Date().toISOString();
   await mkdir(directory, { recursive: true, mode: 0o700 });
-  await appendFile(join(directory, `${at.slice(0, 10)}.jsonl`), JSON.stringify({ id: randomUUID(), at, ...entry }) + '\n', { mode: 0o600 });
+  await appendFile(join(directory, `${at.slice(0, 10)}.jsonl`), JSON.stringify({ id: randomUUID(), at,
+    ...routingRecord(entry) }) + '\n', { mode: 0o600 });
   const files = (await readdir(directory)).filter(name => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(name)).sort();
   for (const name of files.slice(0, -30)) await unlink(join(directory, name)).catch(() => {});
 }

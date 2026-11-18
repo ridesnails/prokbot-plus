@@ -56,17 +56,19 @@ export function recordToolCallOrder(list) {
 }
 
 /** Wait for the previous ordered call of the same response; the returned function marks this call finished. */
-export async function awaitToolCallTurn(toolCallId, signal, { maxWaitMs = MAX_WAIT_MS } = {}) {
+export function awaitToolCallTurn(toolCallId, signal, { maxWaitMs = MAX_WAIT_MS } = {}) {
   const entry = calls.get(toolCallId);
-  if (!entry) return () => {};
-  const previous = entry.previous;
-  if (previous && !signal?.aborted) {
-    let timer, onAbort;
-    await Promise.race([previous,
-      new Promise(settle => { timer = setTimeout(settle, maxWaitMs); }),
-      new Promise(settle => { onAbort = settle; signal?.addEventListener('abort', settle, { once: true }); })]);
-    clearTimeout(timer);
-    signal?.removeEventListener('abort', onAbort);
-  }
-  return () => release(toolCallId, entry);
+  if (!entry) return Promise.resolve(() => {});
+  return (async () => {
+    const previous = entry.previous;
+    if (previous && !signal?.aborted) {
+      let timer, onAbort;
+      await Promise.race([previous,
+        new Promise(settle => { timer = setTimeout(settle, maxWaitMs); }),
+        new Promise(settle => { onAbort = settle; signal?.addEventListener('abort', settle, { once: true }); })]);
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+    }
+    return () => release(toolCallId, entry);
+  })();
 }

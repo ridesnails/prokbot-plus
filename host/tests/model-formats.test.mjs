@@ -197,6 +197,26 @@ test('responses input keeps instructions, media, phase and own encrypted reasoni
   assert.deepEqual(legacy.input.map(item => item.type), ['function_call_output', 'message']);
 });
 
+test('responses skips malformed historical tool calls and their results', () => {
+  const overLimitName = 'x'.repeat(129);
+  const { input } = convertResponsesInput([
+    { role: 'assistant', content: [
+      { type: 'tool-call', toolCallId: 'empty_call', toolName: '', args: {} },
+      { type: 'tool-call', toolCallId: 'bad_call', toolName: overLimitName, args: {} },
+      { type: 'tool-call', toolCallId: 'good_call', toolName: 'get_weather', args: {} },
+    ] },
+    { role: 'tool', content: [
+      { type: 'tool-result', toolCallId: 'empty_call', toolName: '', result: 'discarded' },
+      { type: 'tool-result', toolCallId: 'bad_call', toolName: overLimitName, result: 'discarded' },
+      { type: 'tool-result', toolCallId: 'good_call', toolName: 'get_weather', result: 'kept' },
+    ] },
+  ]);
+  assert.deepEqual(input, [
+    { type: 'function_call', call_id: 'good_call', name: 'get_weather', arguments: '{}' },
+    { type: 'function_call_output', call_id: 'good_call', output: 'kept' },
+  ]);
+});
+
 test('responses stream yields summarized reasoning, signature, text and tool calls in output order', async () => {
   const { parts, response, usage, requests } = await turn('openai-responses', [() => sse([
     { type: 'response.created', response: { id: 'resp_1', model: 'gpt-5.5' } },
@@ -237,6 +257,15 @@ test('responses incomplete and failed turns surface as model errors', async () =
     error => error.code === 'context_length_exceeded');
 });
 
+test('responses rejects malformed model function names before persisting them', async () => {
+  const invalidName = 'x'.repeat(129);
+  await assert.rejects(turn('openai-responses', [() => sse([
+    { type: 'response.output_item.added', output_index: 0, item: { type: 'function_call', call_id: 'call_1', name: invalidName } },
+    { type: 'response.output_item.done', output_index: 0, item: { type: 'function_call', call_id: 'call_1', name: invalidName, arguments: '{}' } },
+    { type: 'response.completed', response: { id: 'r', usage: {} } },
+  ])], { tools: weatherTool }), /invalid function name/);
+});
+
 test('responses retries without rejected summaries and stale encrypted reasoning', async () => {
   const done = () => sse([{ type: 'response.created', response: { id: 'r' } }, { type: 'response.output_text.delta', output_index: 0, delta: 'ok' },
     { type: 'response.output_item.done', output_index: 0, item: { type: 'message', content: [{ type: 'output_text', text: 'ok' }] } },
@@ -266,6 +295,26 @@ test('chat uses max_completion_tokens for OpenAI reasoning models and replays on
   assert.equal(messages[1].reasoning_content, 'own');
 });
 
+test('chat skips malformed historical tool calls and their results', () => {
+  const overLimitName = 'x'.repeat(129);
+  const messages = convertChatMessages([
+    { role: 'assistant', content: [
+      { type: 'tool-call', toolCallId: 'empty_call', toolName: '', args: {} },
+      { type: 'tool-call', toolCallId: 'bad_call', toolName: overLimitName, args: {} },
+      { type: 'tool-call', toolCallId: 'good_call', toolName: 'get_weather', args: {} },
+    ] },
+    { role: 'tool', content: [
+      { type: 'tool-result', toolCallId: 'empty_call', toolName: '', result: 'discarded' },
+      { type: 'tool-result', toolCallId: 'bad_call', toolName: overLimitName, result: 'discarded' },
+      { type: 'tool-result', toolCallId: 'good_call', toolName: 'get_weather', result: 'kept' },
+    ] },
+  ]);
+  assert.deepEqual(messages, [
+    { role: 'assistant', content: null, tool_calls: [{ id: 'good_call', type: 'function', function: { name: 'get_weather', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'good_call', content: 'kept' },
+  ]);
+});
+
 test('chat stream reads reasoning_content, reasoning and refusal deltas', async () => {
   const { parts, response, requests } = await turn('openai', [() => sse([
     { id: 'c1', model: 'deepseek-v4.1-flash', choices: [{ index: 0, delta: { reasoning_content: 'Think. ' } }] },
@@ -280,6 +329,13 @@ test('chat stream reads reasoning_content, reasoning and refusal deltas', async 
   const content = response.messages[0].content;
   assert.equal(content[0].providerOptions.grokbot.format, 'openai');
   assert.equal(content[1].text, 'Answer (partly declined)');
+});
+
+test('chat rejects malformed model function names before persisting them', async () => {
+  const invalidName = 'x'.repeat(129);
+  await assert.rejects(turn('openai', [() => sse([
+    { id: 'c', choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: invalidName, arguments: '{}' } }] }, finish_reason: 'tool_calls' }], usage: {} },
+  ], { done: true })], { tools: weatherTool }), /invalid function name/);
 });
 
 test('chat swaps the output limit parameter when the service rejects it', async () => {

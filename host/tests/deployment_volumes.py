@@ -121,11 +121,19 @@ class Engine:
             if fmt == '{{.State.Status}}':
                 return '\n'.join(c['State']['Status'] for c in items)
             assert 'index .Config.Labels' in fmt and '{{json .Mounts}}' in fmt
+            # `.Id` makes docker inspect read the raw JSON, where a dotted key the daemon omitted
+            # is an error. Containers here have no HostConfig.Mounts unless a test adds them, as
+            # when Compose 2.40 creates named volumes as Binds.
+            for c in items:
+                host_mounts = c.get('HostConfig', {}).get('Mounts')
+                if ('.HostConfig.Mounts' in fmt and host_mounts is None or
+                        '.VolumeOptions' in fmt and any('VolumeOptions' not in m for m in host_mounts or [])):
+                    self.error(cmd)
             return '\n'.join(json.dumps({'Id': c['Id'], 'State': c['State'], 'Image': c['Image'],
                                           'Labels': c['Config']['Labels'], 'Mounts': c['Mounts'],
-                                          'SubpathTargets': [m['Target'] for m in c.get('HostConfig', {}).get('Mounts', [])
+                                          'SubpathTargets': [m['Target'] for m in c.get('HostConfig', {}).get('Mounts') or []
                                                             if (m.get('VolumeOptions') or {}).get('Subpath')]
-                                          if '.HostConfig.Mounts' in fmt else []}) for c in items)
+                                          if 'index .HostConfig "Mounts"' in fmt else []}) for c in items)
         if cmd[0] in ('pause', 'unpause', 'stop', 'start'):
             c = self.containers[cmd[-1]]
             status = {'pause': 'paused', 'unpause': 'running', 'stop': 'exited', 'start': 'running'}[cmd[0]]
@@ -376,6 +384,16 @@ class VolumeTests(unittest.TestCase):
             backup.backup(PROJECT, self.source, HOST_TAG)
         self.assertFalse(self.source.exists()); self.assertEqual(c['State']['Status'], 'running')
         self.assertFalse(any(cmd[0] in ('pause', 'run') for cmd in self.e.calls))
+
+    def test_backup_reads_containers_without_host_config_mounts_or_volume_options(self):
+        # Compose 2.40 writes Binds, leaving no HostConfig.Mounts; --mount without options leaves no VolumeOptions.
+        self.e.stack()
+        self.e.containers['demo-box']['HostConfig'] = {'Mounts': [{'Type': 'volume', 'Target': '/workspace',
+                                                                   'Source': 'demo_box-workspace'}]}
+        backup.backup(PROJECT, self.source, HOST_TAG)
+        manifest = json.loads((self.source / 'manifest.json').read_text())
+        self.assertEqual(len(manifest['volumes']), 3)
+        self.assertEqual({c['State']['Status'] for c in self.e.containers.values()}, {'running'})
 
     def test_backup_does_not_unpause_prepaused_or_start_stopped_services(self):
         self.e.stack()

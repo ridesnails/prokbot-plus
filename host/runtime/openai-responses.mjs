@@ -7,6 +7,10 @@ import { explicitEffort, fileKind, fileText, mediaUrl, messageParts, ModelReques
 
 export const FORMAT = 'openai-responses';
 
+// Keep replay within the Responses provider's observed function-name limit.
+// Reject malformed model output before it reaches persisted conversation history.
+const validFunctionName = value => typeof value === 'string' && value.length > 0 && value.length <= 128;
+
 export function responsesEndpoint(baseUrl) {
   const url = new URL(baseUrl);
   if (!['http:', 'https:'].includes(url.protocol)) throw new TypeError('baseUrl must use HTTP or HTTPS');
@@ -47,9 +51,10 @@ function userContent(part) {
 }
 
 /** Encrypted reasoning is readable only by the model that produced it. */
-function replayableReasoning(part, model) {
+function replayableReasoning(part, model, providerId) {
   const origin = reasoningOrigin(part);
   if (origin.model !== model) return null;
+  if (origin.providerId && providerId && origin.providerId !== providerId) return null;
   if (part.type === 'reasoning') {
     if (!part.signature || !(origin.format === FORMAT || (!origin.format && origin.summarized))) return null;
     return { type: 'reasoning', ...(origin.itemId ? { id: origin.itemId } : {}),
@@ -64,9 +69,10 @@ function replayableReasoning(part, model) {
 }
 
 /** CoreMessages to Responses input items and instructions. */
-export function convertResponsesInput(messages, { model, replayReasoning = true, inlineToolImages = true } = {}) {
+export function convertResponsesInput(messages, { model, providerId, replayReasoning = true, inlineToolImages = true } = {}) {
   const instructions = [], input = [];
   let leading = true, pendingImages = [];
+  const skippedToolCalls = new Set();
   const flushImages = () => {
     if (!pendingImages.length) return;
     input.push({ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Screenshots from the preceding tool results:' }, ...pendingImages] });
@@ -91,7 +97,7 @@ export function convertResponsesInput(messages, { model, replayReasoning = true,
       const items = [];
       for (const part of parts) {
         if (part.type === 'reasoning' || part.type === 'redacted-reasoning') {
-          const item = replayReasoning ? replayableReasoning(part, model) : null;
+          const item = replayReasoning ? replayableReasoning(part, model, providerId) : null;
           if (item) { items.push(item); replayed++; }
         } else if (part.type === 'text') {
           if (!part.text) continue;
@@ -100,6 +106,12 @@ export function convertResponsesInput(messages, { model, replayReasoning = true,
           if (previous?.type === 'message' && previous.phase === phase) previous.content += part.text;
           else items.push({ type: 'message', role: 'assistant', content: part.text, ...(phase ? { phase } : {}) });
         } else if (part.type === 'tool-call') {
+          // Older Host versions could persist a malformed upstream function name.
+          // Omit it and its result instead of replaying an API-invalid call forever.
+          if (!validFunctionName(part.toolName)) {
+            if (typeof part.toolCallId === 'string') skippedToolCalls.add(part.toolCallId);
+            continue;
+          }
           items.push({ type: 'function_call', call_id: part.toolCallId, name: part.toolName, arguments: textValue(part.args ?? {}) });
         }
       }
@@ -109,6 +121,7 @@ export function convertResponsesInput(messages, { model, replayReasoning = true,
     } else if (message.role === 'tool') {
       for (const part of parts) {
         if (part.type !== 'tool-result' || !part.toolCallId) throw new TypeError('Tool messages require tool-result parts and toolCallId');
+        if (skippedToolCalls.has(part.toolCallId)) continue;
         const extra = part.experimental_content ?? [];
         const text = part.result === undefined ? extra.filter(item => item.type === 'text').map(item => item.text).join('\n') : textValue(part.result);
         const images = extra.filter(item => item.type === 'image').map(item => ({ type: 'input_image', image_url: mediaUrl(item), detail: 'auto' }));
@@ -158,7 +171,7 @@ function incomplete(reason) {
 /** One streamed Responses turn; yields Harness stream parts, returns the assembled message. */
 export async function* responsesTurn(context) {
   const { fetchImpl, endpoint, apiKey, headers, model, messages, tools, effort, efforts, maxTokens, signal, waitForIO, state,
-    notifyRequest, onModel, onId, onUsage } = context;
+    providerId, notifyRequest, onModel, onId, onUsage } = context;
   const functions = convertResponsesTools(tools);
   let replayed = 0, inlineImages = false;
   const { http } = await postWithFallback({ fetchImpl, url: endpoint, apiKey, signal, waitForIO, state, optional: OPTIONAL,
@@ -175,7 +188,7 @@ export async function* responsesTurn(context) {
         apply: () => { state.toolImagesAsMessage = true; } },
     ],
     build: () => {
-      const converted = convertResponsesInput(messages, { model, replayReasoning: !state.stripReasoning,
+      const converted = convertResponsesInput(messages, { model, providerId, replayReasoning: !state.stripReasoning,
         inlineToolImages: !state.toolImagesAsMessage });
       replayed = converted.replayed;
       inlineImages = converted.input.some(item => item.type === 'function_call_output' && Array.isArray(item.output));
@@ -198,7 +211,7 @@ export async function* responsesTurn(context) {
     return entry;
   };
   const reasoningOptions = (entry, summarized) => ({
-    providerOptions: reasoningProviderOptions({ format: FORMAT, model: responseModel, summarized, itemId: entry.id }) });
+    providerOptions: reasoningProviderOptions({ format: FORMAT, model: responseModel, providerId, summarized, itemId: entry.id }) });
   const start = response => {
     if (id && response?.id && response.id !== id) throw new ModelRequestError('Conflicting model response ID');
     if (response?.id && response.id !== id) { id = response.id; onId(id); notifyRequest(id); }
@@ -326,12 +339,12 @@ export async function* responsesTurn(context) {
     } else if (entry.type === 'message') {
       if (entry.text) content.push({ type: 'text', text: entry.text, ...(entry.phase ? { providerOptions: { grokbot: { phase: entry.phase } } } : {}) });
     } else if (entry.type === 'function_call') {
-      if (!entry.callId || !entry.name) throw new ModelRequestError('Incomplete model tool call identity');
+      if (!entry.callId || !validFunctionName(entry.name)) throw new ModelRequestError('Model response included an invalid function name');
       const call = { type: 'tool-call', toolCallId: entry.callId, toolName: entry.name, args: parseToolArguments(entry.name, entry.arguments) };
       // Output order is kept: each reasoning item must precede the output it led to on replay.
       calls.push(call); content.push(call);
     }
   }
-  yield* streamToolCalls(calls, messages);
+  yield* streamToolCalls(calls, messages, signal);
   return { id, model: responseModel, content, toolCalls: calls.length, usage: responsesUsage(rawUsage) };
 }

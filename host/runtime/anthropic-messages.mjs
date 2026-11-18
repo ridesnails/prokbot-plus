@@ -105,8 +105,13 @@ function userBlock(part) {
 }
 
 /** Thinking that Anthropic wrote; other formats' reasoning is not replayed here. */
-function anthropicReasoning(part) {
+function anthropicReasoning(part, providerId) {
   const origin = reasoningOrigin(part);
+  // Response model IDs can differ from configured aliases (date snapshots or
+  // gateways rewriting the name), but signed Anthropic thinking is still valid
+  // for the same provider. API format and provider identity remain isolation
+  // boundaries.
+  if (origin.providerId && providerId && origin.providerId !== providerId) return false;
   if (origin.format) return origin.format === FORMAT;
   if (part.type === 'reasoning') return Boolean(part.signature) && !origin.summarized;
   return !origin.model || /claude/i.test(origin.model);
@@ -117,9 +122,9 @@ function anthropicReasoning(part) {
  * part still carries its signature; otherwise all thinking is stripped, which the API
  * accepts, instead of sending a history with blocks missing from the middle.
  */
-export function convertAnthropicMessages(messages, { stripThinking = false } = {}) {
+export function convertAnthropicMessages(messages, { model, providerId, stripThinking = false } = {}) {
   const reasoningParts = messages.filter(message => message.role === 'assistant' && Array.isArray(message.content))
-    .flatMap(message => message.content.filter(part => (part.type === 'reasoning' || part.type === 'redacted-reasoning') && anthropicReasoning(part)));
+    .flatMap(message => message.content.filter(part => (part.type === 'reasoning' || part.type === 'redacted-reasoning') && anthropicReasoning(part, providerId)));
   const replayThinking = !stripThinking && reasoningParts.every(part =>
     part.type === 'redacted-reasoning' ? typeof part.data === 'string' && part.data : typeof part.signature === 'string' && part.signature);
   const system = [], output = [];
@@ -147,9 +152,9 @@ export function convertAnthropicMessages(messages, { stripThinking = false } = {
     } else if (message.role === 'assistant') {
       push('assistant', parts.map(part => {
         if (part.type === 'text') return part.text ? { type: 'text', text: part.text } : null;
-        if (part.type === 'reasoning') return replayThinking && anthropicReasoning(part) ? { type: 'thinking', thinking: part.text ?? '', signature: part.signature } : null;
+        if (part.type === 'reasoning') return replayThinking && anthropicReasoning(part, providerId) ? { type: 'thinking', thinking: part.text ?? '', signature: part.signature } : null;
         if (part.type === 'redacted-reasoning') {
-          if (!replayThinking || !anthropicReasoning(part)) return null;
+          if (!replayThinking || !anthropicReasoning(part, providerId)) return null;
           return reasoningOrigin(part).emptyThinking ? { type: 'thinking', thinking: '', signature: part.data } : { type: 'redacted_thinking', data: part.data };
         }
         if (part.type === 'tool-call') return { type: 'tool_use', id: part.toolCallId, name: part.toolName,
@@ -211,7 +216,7 @@ const OPTIONAL = ['fallbacks', 'thinking.display', 'output_config'];
 /** One streamed Messages API turn; yields Harness stream parts and returns the assembled message. */
 export async function* anthropicTurn(context) {
   const { fetchImpl, endpoint, apiKey, headers, model, messages, tools, effort, maxTokens, signal, waitForIO, state,
-    notifyRequest, onModel, onId, onUsage } = context;
+    providerId, notifyRequest, onModel, onId, onUsage } = context;
   const anthropicTools = convertAnthropicTools(tools);
   let replayed = false;
   const { http } = await postWithFallback({ fetchImpl, url: endpoint, apiKey, signal, waitForIO, state, optional: OPTIONAL,
@@ -223,7 +228,7 @@ export async function* anthropicTurn(context) {
     // Signed thinking from an edited or summarized history: retry without it.
     fallbacks: [{ name: 'retry without replayed thinking', applies: error => replayed && replayRejected(error), apply: () => { state.stripReasoning = true; } }],
     build: () => {
-      const converted = convertAnthropicMessages(messages, { stripThinking: state.stripReasoning });
+      const converted = convertAnthropicMessages(messages, { model, providerId, stripThinking: state.stripReasoning });
       replayed = converted.replayedThinking;
       return { model, ...anthropicOptions(model, { effort, maxTokens }), stream: true,
         ...(converted.system.length ? { system: converted.system } : {}), messages: converted.messages,
@@ -232,8 +237,8 @@ export async function* anthropicTurn(context) {
   notifyRequest(http.headers.get('request-id') ?? http.headers.get('x-request-id'));
   let id, responseModel = model, stopReason, stopDetails, stopped = false;
   const rawUsage = {}, blocks = new Map();
-  const reasoningOptions = () => ({ providerOptions: reasoningProviderOptions({ format: FORMAT, model: responseModel }) });
-  const emptyOptions = () => ({ providerOptions: reasoningProviderOptions({ format: FORMAT, model: responseModel, emptyThinking: true }) });
+  const reasoningOptions = () => ({ providerOptions: reasoningProviderOptions({ format: FORMAT, model: responseModel, providerId }) });
+  const emptyOptions = () => ({ providerOptions: reasoningProviderOptions({ format: FORMAT, model: responseModel, providerId, emptyThinking: true }) });
   const mergeUsage = usage => {
     if (!usage) return;
     for (const [key, value] of Object.entries(usage)) if (value !== null && value !== undefined) rawUsage[key] = value;
@@ -316,6 +321,6 @@ export async function* anthropicTurn(context) {
     calls.push(call); content.push(call);
   }
   if ((stopReason === 'tool_use') !== Boolean(calls.length)) throw new ModelRequestError('Model tool calls do not match the stop reason');
-  yield* streamToolCalls(calls, messages);
+  yield* streamToolCalls(calls, messages, signal);
   return { id, model: responseModel, content, toolCalls: calls.length, usage: anthropicUsage(rawUsage) };
 }

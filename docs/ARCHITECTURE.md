@@ -51,7 +51,7 @@ flowchart LR
 | --- | --- | --- | --- |
 | 🔁 登录 | 官方账号 | 不需要账号。Host 管理页生成 6 位配对码，客户端输入 Host 地址和配对码即可连接 | — |
 | 🔁 Host 和执行电脑 | 官方云端 | Host 按服务器架构构建，执行桌面保持原版 | amd64 / arm64 Linux，amd64 桌面可独立部署 |
-| 🔁 对话模型 | 官方模型，自动选择等级 | 自选模型，支持 OpenAI Chat Completions、OpenAI Responses 与 Anthropic Messages 三种接口格式。可以让 Jev 分类器自动选择模型和思考强度 | 模型接口地址和 API Key |
+| 🔁 对话模型 | 官方模型，自动选择等级 | 可添加多个模型服务和模型档案，支持 OpenAI Chat Completions、OpenAI Responses 与 Anthropic Messages 三种接口格式。默认路由或单个 Bot 路由分别指定模型、思考强度和备用顺序；不需要 Jev Key | 模型接口地址和 API Key |
 | 🟢 电脑和浏览器操作 | 原版 Agent | 保留原版 | 支持视觉能力的模型 |
 | 🟢 记忆、上下文压缩、定时任务 | 原版 Agent，部分依赖官方服务 | 保留原版，改用你的模型和本地计时，上下文压缩可自行设置 | — |
 | 🟢 操作审批、人工接管、交互表单 | 原版 | 保留原版 | — |
@@ -130,13 +130,14 @@ flowchart LR
 | 文件 | 职责 |
 | --- | --- |
 | `host/runtime/model-session.mjs` | 入口，按 `apiFormat`（`openai` / `openai-responses` / `anthropic`）分派 |
+| `host/runtime/model-routing.mjs` | 校验多服务/档案配置，解析默认或 Bot 覆盖路由及备用链 |
 | `host/runtime/openai-chat.mjs` | Chat Completions，地址后接 `/chat/completions` |
 | `host/runtime/openai-responses.mjs` | Responses，地址后接 `/responses`，无状态调用 |
 | `host/runtime/anthropic-messages.mjs` | Messages，地址写根地址或 `/v1` 都可以 |
 | `host/runtime/model-common.mjs` | SSE 解析、错误归一、图片和文件转换、推理来源标记、可选参数回退 |
 | `host/runtime/model-policy.mjs` | 思考强度档位和各模型的参考档位表 |
-| `host/runtime/model-router.mjs` | 手动模式，或 Jev 按任务难度选模型和强度 |
-| `host/server/models.mjs` | 保存配置、读取模型列表、连接测试（和正式对话走同一条代码路径） |
+| `host/runtime/model-router.mjs` | 多服务配置时直接选择 Bot 路由；旧配置仍可手动或由 Jev 按任务难度路由 |
+| `host/server/models.mjs` | 保存多服务/档案/路由配置、读取模型列表、连接测试（和正式对话走同一条代码路径） |
 
 | 能力 | OpenAI Chat | OpenAI Responses | Anthropic Messages |
 | --- | --- | --- | --- |
@@ -146,7 +147,10 @@ flowchart LR
 | 输出上限 | 自动在 `max_completion_tokens` 和 `max_tokens` 之间选择 | `max_output_tokens` | 按型号上限 |
 
 - **思考强度**：档位有 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`，以及 `default`（不发送强度参数）。某个模型支持哪些档位，优先用接口 `/models` 返回的值，没有时用内置参考表。
-- **推理来源标记**：不同格式、不同模型的推理内容互相读不了。每段推理在 `providerOptions.grokbot` 里记下格式和模型，回放时只回放当前格式、当前模型能读的部分，所以对话中途切换模型不会出错。没有摘要的加密推理和空的思考块保存成 `redacted-reasoning`，回放时再还原。
+- **多服务与 Bot 路由**：模型服务保存接口格式、地址和 Key；模型档案绑定服务、模型 ID、支持的思考强度和上下文策略。默认路由适用于未覆盖的 Bot，单个 Bot 可定义主档案和最多 8 个按顺序尝试的备用档案。这个直接路由不调用 Jev；子代理继承父 Bot 的 `agentId`，因此也使用同一条 Bot 路由。Key 只写入私有 `model.env`，Host 网络边界只放行所有已配置的模型服务主机。
+- **主/备切换**：主模型尚未发出文字或工具调用时，402、408、429、5xx、网络错误或上游 I/O 空闲超时会转到下一个备用模型；已经流出的推理仍可切换。Host 的 I/O 空闲默认是 300 秒，而且只在等待 HTTP/SSE I/O 时计时；Harness 自己还有 150 秒首字停滞截止时间，所以多数首字停滞会先由 Harness 结束本轮。400、认证/配置错误及调用方取消/超时不会触发 Host 备用。明确的 API Key 额度耗尽标为不可重试；只有额度耗尽时才跳过共用同一 Key 的备用档案，503、网络或超时仍可尝试同一 Key 下的另一个模型。备用模型接管后，同一工具循环的后续步骤继续优先使用该模型。已经发出文字或工具调用后绝不切换，避免重复对用户可见的输出和工具副作用；回退事件写入模型路由记录。
+- **推理来源标记**：不同格式、不同服务商的推理内容互相读不了。每段推理在 `providerOptions.grokbot` 里记下格式和服务 ID；Anthropic 签名思考还会校验服务商，但不把服务商返回的日期快照或中转改写后的模型名当成不兼容。没有摘要的加密推理和空的思考块保存成 `redacted-reasoning`，回放时再还原。
+- **上下文容量**：只有在服务商目录提供容量时才自动带入上下文和摘要阈值。未知模型为 `0`，不猜测上下文窗口，也不会因此提前开启自动压缩。管理员手动设置的非零容量和摘要阈值会启用 Harness 的自动摘要；因此旧的单模型 `model.env` 若同时设置这两个值，升级后也会真正开始按阈值压缩，这是行为变化。
 - **可选参数回退**：服务商用 400 拒绝某个可选参数（例如 `reasoning.summary`、`max_tokens`、`fallbacks`）时，去掉它重试一次，在本次会话内记住，并在日志里打印 `[model] … retrying without …`。回放的推理失效时同样处理。
 - **已知网关问题**：有的聚合网关用 Responses 格式转发 Claude 时，只要请求带工具就返回 `native_thinking_replay_mismatch`。这是网关的问题，Claude 请用 Anthropic 格式。
 

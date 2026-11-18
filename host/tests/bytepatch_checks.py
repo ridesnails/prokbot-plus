@@ -1,13 +1,38 @@
 import hashlib
 import io
+import importlib.util
+import json
+import base64
+import os
 from pathlib import Path
 import sys
+import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'release'))
 import bytepatch
+
+PATCH_HOST = Path(__file__).resolve().parents[1] / 'release' / 'patch-host.py'
+PATCH_HOST_SPEC = importlib.util.spec_from_file_location('patch_host', PATCH_HOST)
+patch_host = importlib.util.module_from_spec(PATCH_HOST_SPEC)
+PATCH_HOST_SPEC.loader.exec_module(patch_host)
+
+
+def pinned_host_archive():
+    configured = os.environ.get('PROKBOT_TEST_HOST_ARCHIVE')
+    candidates = [Path(configured).expanduser()] if configured else [
+        Path(__file__).resolve().parents[2] / 'inputs' / 'host' / 'sand-host-bundle-d0a4baa.tgz',
+    ]
+    for path in candidates:
+        if path.is_file() and bytepatch.file_digest(path) == 'b03894dc9a29eadc6ee1b7265424fe5695d77c5af0cdc022f27338cd69f73d0f':
+            with tarfile.open(path, 'r:gz') as archive:
+                member = archive.extractfile('sand-host/host-main.cjs')
+                if member is None:
+                    raise ValueError('Pinned Host archive has no sand-host/host-main.cjs')
+                return member.read()
+    return None
 
 
 class PinnedPatchTests(unittest.TestCase):
@@ -44,6 +69,50 @@ class PinnedPatchTests(unittest.TestCase):
             path.write_bytes(data)
             with patch.object(Path, 'read_bytes', side_effect=AssertionError('unbounded file read')):
                 self.assertEqual(bytepatch.file_digest(path), hashlib.sha256(data).hexdigest())
+
+    def test_reliability_manifest_checks_generated_file_digests(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp) / 'release-reliability'
+            directory.mkdir()
+            content = b'prepared output'
+            (directory / 'module.mjs').write_bytes(content)
+            manifest = {
+                'digest': 'a' * 64,
+                'files': [{'name': 'module.mjs', 'sha256': hashlib.sha256(content).hexdigest()}],
+            }
+            (directory / 'manifest.json').write_text(json.dumps(manifest))
+            patch_host.verify_reliability_manifest(Path(tmp))
+            (directory / 'module.mjs').write_bytes(b'changed output')
+            with self.assertRaisesRegex(ValueError, 'Prepared reliability manifest mismatch: module.mjs'):
+                patch_host.verify_reliability_manifest(Path(tmp))
+
+    def test_tool_stream_recipe_waits_for_both_error_branches(self):
+        recipe = bytepatch.load(Path(__file__).resolve().parents[1] / 'recipes' / 'host' /
+                                'release-reliability__engine-tool-stream-executor.mjs.gbp.gz')
+        additions = b''.join(base64.b64decode(operation[1]) for operation in recipe['ops'] if operation[0] == 'add')
+        self.assertIn(b'await Promise.allSettled([stream1.throw(e), stream22.close()]', additions)
+        self.assertIn(b'.catch(() => interactionHandler.invocationId)', additions)
+
+    def test_bot_id_injection_applies_to_the_complete_pinned_harness_target(self):
+        source = pinned_host_archive()
+        if source is None:
+            self.skipTest('set PROKBOT_TEST_HOST_ARCHIVE to run the pinned Host recipe check')
+        expected = {
+            'recovered-core__stable__harness-turn-run-shell.mjs.gbp.gz': (
+                '23657bba5e9d8a5b9cb90553312be1793b568bbe89af3d377c31cd681195911d', 769, (418, 449)),
+            'release-reliability__harness-turn-run-shell.mjs.gbp.gz': (
+                'b402f015e19eae49b730ae202bd6dae3ddd16cc26f82b308a15fef87d13a48bd', 776, (421, 453)),
+        }
+        recipes = Path(__file__).resolve().parents[1] / 'recipes' / 'host'
+        for name, (digest, lines, positions) in expected.items():
+            with self.subTest(recipe=name):
+                target = bytepatch.apply(source, bytepatch.load(recipes / name))
+                self.assertEqual(bytepatch.digest(target), digest)
+                target_lines = target.splitlines()
+                self.assertEqual(len(target_lines), lines)
+                found = tuple(index + 1 for index, line in enumerate(target_lines)
+                              if b'agentId: host.getConversationId()' in line)
+                self.assertEqual(found, positions)
 
 
 if __name__ == '__main__':

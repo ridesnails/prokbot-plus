@@ -39,14 +39,20 @@ class AdminUI(unittest.TestCase):
         cls.addClassCleanup(http.shutdown)
         driver = sync_playwright().start()
         cls.addClassCleanup(driver.stop)
-        cls.browser = driver.chromium.launch(args=['--disable-background-networking'])
+        chrome = Path('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
+        cls.browser = driver.chromium.launch(executable_path=str(chrome),
+            args=['--disable-background-networking']) if chrome.exists() else driver.chromium.launch(
+                args=['--disable-background-networking'])
         cls.addClassCleanup(cls.browser.close)
 
-    def start(self, view='overview', *, mobile=False, locale='en-US', initial='ready', authenticated=True):
+    def start(self, view='overview', *, mobile=False, locale='en-US', initial='ready', authenticated=True, demo_bot=False,
+              legacy=None):
         self.mode, self.authenticated, self.reply = initial, authenticated, 'ok'
+        self.demo_bot, self.legacy, self.saved = demo_bot, legacy, None
         self.requests, self.unexpected = [], []
+        viewport = {'width': 390, 'height': 844} if mobile else {'width': 1440, 'height': 940} if view == 'model' else {'width': 1280, 'height': 900}
         context = self.browser.new_context(locale=locale, timezone_id='UTC',
-            viewport={'width': 390 if mobile else 1280, 'height': 844 if mobile else 900},
+            viewport=viewport,
             is_mobile=mobile, has_touch=mobile, reduced_motion='reduce', service_workers='block')
         self.addCleanup(context.close)
         self.addCleanup(lambda: self.assertEqual(self.unexpected, []))
@@ -83,14 +89,37 @@ class AdminUI(unittest.TestCase):
         if mode == 'json401':
             return route.fulfill(status=401, json={'error': '管理员密码不正确' if key == 'login' else '请登录管理页面'})
         configured = self.mode != 'unconfigured'
-        model = {'apiFormat': 'openai', 'model': 'demo-model' if configured else '',
-            'baseUrl': 'https://model.example.invalid/v1', 'hasApiKey': configured,
-            'configured': configured, 'reload': {'status': 'applied'},
-            'policy': {'mode': 'manual', 'effort': 'default', 'classifierModel': 'jev-latest',
-                'models': [{'id': 'demo-model', 'efforts': ['low']}], 'routes': {}}}
+        model = {
+            'version': 1,
+            'providers': [
+                {'id': 'demo', 'name': 'Demo service', 'apiFormat': 'openai',
+                 'baseUrl': 'https://model.example.invalid/v1', 'hasApiKey': configured},
+                {'id': 'backup', 'name': 'Backup service', 'apiFormat': 'anthropic',
+                 'baseUrl': 'https://backup.example.invalid', 'hasApiKey': configured},
+            ] if configured else [],
+            'profiles': [
+                {'id': 'primary', 'name': 'Primary profile', 'providerId': 'demo', 'model': 'demo-model',
+                 'efforts': ['low'], 'contextWindowTokens': 0, 'summaryThresholdTokens': 0},
+                {'id': 'backup', 'name': 'Backup profile', 'providerId': 'backup', 'model': 'demo-backup',
+                 'efforts': ['high'], 'contextWindowTokens': 0, 'summaryThresholdTokens': 0},
+            ] if configured else [],
+            'defaultRoute': {'profileId': 'primary', 'effort': 'low',
+                             'fallbacks': [{'profileId': 'backup', 'effort': 'high'}]} if configured else None,
+            'botRoutes': {'demo-bot': {'profileId': 'backup', 'effort': 'high',
+                                      'fallbacks': [{'profileId': 'primary', 'effort': 'low'}]}}
+                        if configured and self.demo_bot else {},
+            'model': 'demo-model' if configured else '',
+            'configured': configured, 'reload': {'status': 'applied'}, 'hasApiKey': configured,
+            'routingMigrated': self.legacy is not None, 'legacyAdaptiveRouting': self.legacy == 'adaptive',
+        }
+        if key == 'model' and req.method == 'PUT':
+            self.saved, self.legacy = req.post_data_json, None
+            model.update(routingMigrated=False, legacyAdaptiveRouting=False)
         fixtures = {'status': {'model': model, 'devices': [], 'pairingKeys': [], 'notifications': {},
                 'publicUrl': 'https://demo.example.invalid',
-                'host': {'connected': self.mode == 'ready', 'busy': False, 'agents': [],
+                'host': {'connected': self.mode == 'ready', 'busy': False,
+                         'agents': [{'id': 'demo-bot', 'name': 'Research Bot', 'isRunning': False,
+                                     'isGroup': False}] if configured and self.demo_bot else [],
                          'waitingForExecutionNode': self.mode == 'split-wait'}},
             'profile': {'displayName': 'Demo workspace', 'hostName': 'Demo Host', 'avatarDataUrl': None},
             'usage': {'requests': 0}, 'speech': {'enabled': False, 'provider': 'fish'},
@@ -98,7 +127,8 @@ class AdminUI(unittest.TestCase):
                 'endpoint': 'https://voice.example.invalid', 'model': 'demo', 'voice': 'demo', 'speed': 1}},
             'media': {'defaults': {}}, 'web-services': {'defaults': {}}, 'harness': {}, 'skills': [],
             'apps': {'apps': []}, 'network': {'enabled': False}, 'execution': {'enabled': False, 'url': '', 'name': 'Demo node'},
-            'federation': {'peers': []}, 'webhooks': [], 'sharing': []}
+            'federation': {'peers': []}, 'webhooks': [], 'sharing': [],
+            'model/routing-log': {'items': []}, 'model': model}
         if key not in fixtures:
             self.unexpected.append('unexpected demo API: ' + key)
             return route.fulfill(status=404, json={'error': 'Unknown demo endpoint'})
@@ -217,7 +247,7 @@ class AdminUI(unittest.TestCase):
                 self.assertNotRegex(alert.inner_text(), r'(?i)<html|<!doctype|DEMO PROXY|unexpected token|expired')
 
     def test_mobile_english_keyboard(self):
-        page = self.start(mobile=True, initial='unconfigured')
+        page = self.start(mobile=True, initial='ready', demo_bot=True)
         hint = page.locator('#attention-list .row-hint').first.inner_text()
         layout = page.evaluate('''() => {
             const range = document.createRange();
@@ -241,21 +271,56 @@ class AdminUI(unittest.TestCase):
         page.keyboard.press('Enter')
         expect(link).to_have_attribute('aria-current', 'page')
         expect(menu).to_have_attribute('aria-expanded', 'false')
-        select = page.get_by_role('combobox', name=re.compile('API format'))
+        expect(page.locator('#model-providers .item')).to_have_count(2)
+        expect(page.locator('#model-profiles .item')).to_have_count(2)
+        expect(page.locator('#model-default-route')).to_contain_text('Primary profile')
+        expect(page.locator('#model-default-route')).to_contain_text('Backup profile')
+        expect(page.locator('#model-bot-routes')).to_contain_text('Research Bot')
+        page.get_by_role('button', name='More actions for Demo service').click()
+        page.get_by_role('menuitem', name='Edit').click()
+        select = page.get_by_role('combobox', name='API format')
         self.assertEqual(select.locator('option').all_text_contents(), FORMATS)
         select.focus()
         page.keyboard.press('ArrowDown')
         expect(select).to_have_value('openai-responses')
         page.keyboard.press('End')
         expect(select).to_have_value('anthropic')
+        page.get_by_role('button', name='Cancel').last.click()
         self.reply = '502'
-        page.get_by_role('button', name='Test connection').press('Enter')
-        error = page.locator('#model-error')
-        expect(error).to_be_visible()
-        self.capture('mobile-model-error', notice=error.inner_text(), format=select.input_value())
-        self.assertEqual(error.inner_text(), 'Request failed (502)')
-        self.assertTrue(all(label in hint for label in FORMATS))
+        page.get_by_role('button', name='Test connection').first.click()
+        toast = page.locator('#toast')
+        expect(toast).to_be_visible()
+        self.capture('mobile-model-error', notice=toast.inner_text(), format='openai')
+        self.assertEqual(toast.inner_text(), 'Request failed (502)')
+        page.goto(self.origin + '/?view=overview', wait_until='networkidle')
+        self.assertIn('Primary profile', page.locator('#model-default-route').inner_text())
+        self.assertIn('Backup profile', page.locator('#model-default-route').inner_text())
         self.assertTrue(page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
+
+    def test_desktop_model_page_documents_routes(self):
+        page = self.start(view='model', demo_bot=True)
+        expect(page.locator('#model-providers .item')).to_have_count(2)
+        expect(page.locator('#model-profiles .item')).to_have_count(2)
+        expect(page.locator('#model-default-route')).to_contain_text('Primary profile')
+        expect(page.locator('#model-default-route')).to_contain_text('Backup profile')
+        expect(page.locator('#model-bot-routes')).to_contain_text('Research Bot')
+        expect(page.locator('#model-bot-routes')).to_contain_text('Backup profile')
+        self.capture('admin-model')
+
+    def test_legacy_model_migration_mentions_jev_only_for_adaptive_routing(self):
+        for legacy in ('single', 'adaptive'):
+            with self.subTest(legacy=legacy):
+                page = self.start(view='model', legacy=legacy)
+                notice = page.locator('#legacy-routing-notice')
+                expect(notice).to_be_visible()
+                self.assertEqual('Jev' in notice.inner_text(), legacy == 'adaptive')
+                page.locator('#model-form button[type=submit]').click()
+                if legacy == 'adaptive':
+                    confirm = page.locator('#confirm-dialog')
+                    expect(confirm).to_contain_text('Jev')
+                    confirm.locator('#confirm-accept').click()
+                expect(notice).to_be_hidden()
+                self.assertIs(self.saved.get('migrateLegacyRouting'), True)
 
     def test_chinese_setup_copy(self):
         page = self.start(initial='unconfigured', locale='zh-CN')

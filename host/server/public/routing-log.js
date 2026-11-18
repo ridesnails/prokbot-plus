@@ -5,6 +5,26 @@ const tiers = { routine: '一般任务', reasoning: '中等任务', expert: '困
 const efforts = { none: '无', low: '轻度', medium: '中度', high: '高度', xhigh: '超高', max: '最高', default: '模型默认' };
 const sources = { jev: '思考强度由 Jev 选择', rule: '使用规则指定的思考强度', model: '使用模型可用强度' };
 
+function fallbackEntry(item) {
+  const entry = node('details', 'disclosure routing-entry'), summary = node('summary'), copy = node('span', 'routing-copy');
+  const from = item.from ?? {}, to = item.to ?? {};
+  entry.dataset.id = item.id;
+  const headline = node('span', 'routing-headline');
+  headline.append(node('strong', '', item.agentId || t('默认路由')), badge(t('模型回退'), 'warn'), node('time', 'hint', date(item.at)));
+  const target = to?.profileName ?? to?.profileId ?? t('没有可用备用模型');
+  copy.append(headline, node('span', 'hint', `${from.profileName ?? from.profileId ?? t('主模型')} → ${target}`));
+  summary.append(copy); entry.append(summary);
+  const details = [
+    `${t('服务')}：${from.providerName ?? from.providerId ?? t('未知')} → ${to?.providerName ?? to?.providerId ?? t('未选择')}`,
+    `${t('失败类别')}：${item.reason ?? t('未知')}${item.session ? ` · ${t('会话')}：${item.session}` : ''}`,
+  ];
+  if (item.skipped?.length) details.push(`${t('跳过同 API Key 的模型')}：${item.skipped.map(value =>
+    value.profileName ?? value.profileId ?? value.model).join('、')}`);
+  const body = node('div', 'routing-body');
+  details.forEach(value => body.append(node('p', 'hint', value))); entry.append(body);
+  return entry;
+}
+
 export function createRoutingLog({ api }) {
   let pending = false, signature;
   async function load() {
@@ -17,8 +37,11 @@ export function createRoutingLog({ api }) {
       if (signature === next) return;
       signature = next;
       const open = new Set([...root.querySelectorAll('details[open]')].map(row => row.dataset.id));
-      if (!items.length) { root.replaceChildren(empty(t('暂无分类记录'))); return; }
+      if (!items.length) { root.replaceChildren(empty(t('暂无路由记录'))); return; }
       root.replaceChildren(...items.map(item => {
+        if (item.kind === 'model-fallback') {
+          const entry = fallbackEntry(item); entry.open = open.has(item.id); return entry;
+        }
         const entry = node('details', 'disclosure routing-entry'), summary = node('summary'), copy = node('span', 'routing-copy');
         entry.dataset.id = item.id; entry.open = open.has(item.id);
         const headline = node('span', 'routing-headline');

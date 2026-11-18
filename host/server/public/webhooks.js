@@ -44,7 +44,7 @@ export function createWebhookEditor({ api, toast, act }) {
   }
   async function loadEvents() {
     const events = await api('/admin/api/webhooks/events'), list = $('#hook-events');
-    list.replaceChildren(...(events.length ? events.slice(0, 50).map(event => item({ tile: icon('bolt'),
+    list.replaceChildren(...(events.length ? events.slice(0, 50).map(event => item({ icon: 'bolt',
       title: hooks.find(hook => hook.id === event.hookId)?.name ?? event.hookId, description: event.detail,
       meta: [`${event.eventId} · ${new Date(event.receivedAt).toLocaleString(locale)}`],
       actions: [badge(t(states[event.state] ?? event.state), tones[event.state])] })) : [empty(t('暂无运行记录'))]));
@@ -69,7 +69,7 @@ export function createWebhookEditor({ api, toast, act }) {
           await api(`/admin/api/webhooks/${hook.id}`, { method: 'DELETE' }); await load();
         }) },
       ]);
-      const row = item({ tile: icon('bolt'), title: hook.name, meta: [hook.path], actions: [enabled, editButton, more] });
+      const row = item({ icon: 'bolt', title: hook.name, meta: [hook.path], actions: [enabled, editButton, more] });
       row.querySelector('.item-meta').dataset.private = '';
       return row;
     }) : [empty(t('还没有 Webhook'), t('外部系统发送签名事件后，由指定 Bot 执行任务。'))]));

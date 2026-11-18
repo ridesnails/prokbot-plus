@@ -3,6 +3,23 @@ import { chatReasoning } from './openai-chat.mjs';
 import { claudeTraits } from './anthropic-messages.mjs';
 export const TIERS = ['routine', 'reasoning', 'expert'];
 export const EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+
+function catalogCapacity(value) {
+  return Number.isSafeInteger(value) && value > 0 && value <= 100_000_000 ? value : undefined;
+}
+
+function summaryThreshold(contextWindowTokens) {
+  if (contextWindowTokens < 2) return 0;
+  return Math.max(1, Math.floor(contextWindowTokens * 0.75 / 1_000) * 1_000);
+}
+
+/** Recommended compaction settings for a model chosen from a provider catalog. */
+export function catalogContextPolicy(model, reportedCapacity) {
+  const capacity = catalogCapacity(reportedCapacity);
+  if (capacity) return { contextWindowTokens: capacity, summaryThresholdTokens: summaryThreshold(capacity), contextSource: 'provider' };
+  return { contextWindowTokens: 0, summaryThresholdTokens: 0, contextSource: 'unknown' };
+}
+
 /** Reference levels for well-known model families; a provider catalog overrides them. */
 export function effortLevels(model) {
   const id = String(model).toLowerCase();

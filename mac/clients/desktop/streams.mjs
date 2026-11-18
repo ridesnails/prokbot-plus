@@ -1,6 +1,20 @@
-import { setTimeout as delay } from 'node:timers/promises';
-
 const FIRST_RETRY_MS = 500, MAX_RETRY_MS = 10000, STABLE_STREAM_MS = 30000;
+
+function retryDelay(milliseconds, signal) {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', abort);
+      reject(signal.reason);
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', abort);
+      resolve();
+    }, milliseconds);
+    signal.addEventListener('abort', abort, { once: true });
+  });
+}
 
 export async function readSse(body, consume) {
   let buffer = '';
@@ -60,7 +74,7 @@ export async function subscribe(config, endpoint, consume, signal, options = {})
       signal.removeEventListener('abort', abort);
       request.abort();
     }
-    try { await delay(retryMs, undefined, { signal }); }
+    try { await retryDelay(retryMs, signal); }
     catch { return; }
     retryMs = Math.min(retryMs * 2, MAX_RETRY_MS);
   }

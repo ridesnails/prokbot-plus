@@ -94,7 +94,7 @@ export function createDevices(context) {
         }) },
       ]));
     }
-    const row = item({ tile: icon('devices'), title: device.name, badges, meta, actions });
+    const row = item({ icon: 'devices', title: device.name, badges, meta, actions });
     row.classList.add('device-row'); if (device.revokedAt) row.classList.add('revoked');
     row.querySelector('.item-title span').dataset.private = '';
     for (const error of [notice.lastError, notice.registrationError].filter(Boolean)) row.querySelector('.item-copy').append(node('p', 'error', error));

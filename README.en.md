@@ -44,7 +44,7 @@ The open-source project [ProkBot](https://gitee.com/ahaduoduoduo/ProkBot) moves 
 ## What it does
 
 - **Use the original Grok Bot.** The interface, Agent, tool calls, memory, scheduled tasks and action approvals are the original ones. Only the server is now in your hands.
-- **Use the models you want.** Claude, GPT, DeepSeek, Grok, or any relay or aggregator gateway, as long as it supports tool calls. Thinking effort goes from `none` to `max`, and the model can also be picked automatically by task difficulty.
+- **Route the models you want.** Add Claude, GPT, DeepSeek, Grok, relays and aggregator gateways together when they support tool calls. Each Bot can have its own primary model, thinking effort and ordered backups; legacy difficulty-based routing remains available for existing configurations.
 - **The Bot has its own computer.** The server comes with a Linux desktop. The Bot runs commands, opens a browser and handles files on it; you can watch it live or take over at any time.
 - **Let the Bot use your computer.** On Mac it can run commands and operate the graphical interface. On Windows it can run commands, and it asks you in a pop-up before each one.
 - **Web access and images.** Search and read web pages with the model's built-in web tools. Generate images with an OpenAI-compatible image API, in a set aspect ratio or from a reference image.
@@ -180,15 +180,16 @@ The official Android app has tamper protection and can't be modified. Plus takes
 
 The APK is signed with a key that is yours alone, and later upgrades must use the same key. The Android app doesn't support Tailcat; from outside, use a VPN, a tunnel or an HTTPS domain. See [client installation](docs/AI-INSTALL.en.md#client-packages) for how to build it.
 
-### Three model APIs
+### Three model APIs and Bot routes
 
-<p align="center"><img src="docs/images/admin-model.png" alt="Chat model settings in the admin page: API format, Base URL, API key, default model and thinking effort" width="760"></p>
+<p align="center"><img src="docs/images/admin-model.png" alt="Model settings in the admin page: services, profiles, default route and Bot routes" width="760"></p>
 
-Upstream supports only OpenAI Chat Completions. Plus adds **Anthropic Messages** and **OpenAI Responses**. All three formats fully support images, files, tool calls, thinking effort and reasoning carried across turns:
+Upstream supports only OpenAI Chat Completions. Plus adds **Anthropic Messages** and **OpenAI Responses**. All three formats fully support images, files, tool calls, thinking effort and reasoning carried across turns. The admin page separates model services, profiles, a default route and Bot routes: one service can have several profiles, and an individual Bot can override its primary model, thinking effort and backup order.
 
 - Switching models or formats in the middle of a conversation doesn't break it;
 - When a provider doesn't support an optional parameter, it is removed and the request retried automatically;
 - Automatic safety review works with all three formats too.
+- Before a primary model has emitted visible text or a tool call, 402, 408, 429, 5xx, network errors and Host upstream-I/O idle timeouts can proceed through backups in order; a same-key backup is skipped only for explicit quota exhaustion. It never switches after visible output, avoiding duplicate replies or tool execution.
 
 ### Web access and images
 

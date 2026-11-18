@@ -21,6 +21,11 @@ export function createHarnessModelErrorMapper(library) {
     const status = error.status;
     const code = typeof error.code === 'string' ? error.code : undefined;
     const options = { cause: error, displayInfo: { detail: error.message, isRetryable: false } };
+    // Quota exhaustion is permanent until the account changes. Unlike a transient
+    // 429, sending the same request again only creates a restart/retry storm.
+    const quotaExhausted = code === 'API_KEY_QUOTA_EXHAUSTED' || code === 'insufficient_quota' ||
+      (status === 402 && !code) ||
+      /(?:api[ _-]?key|account)\s+(?:quota|credit|balance)\s+(?:is\s+)?(?:exhausted|used up|depleted|exceeded)|(?:账户|账户余额|API\s*额度|额度)\s*(?:已)?\s*(?:用完|耗尽|不足)/i.test(error.message);
     const inputLimit = ['context_length_exceeded', 'input_token_limit_exceeded', 'prompt_too_long'].includes(code) ||
       ([400, 413, 422].includes(status) && /(?:maximum context length|input token limit|prompt (?:is )?too long|context window.*exceed)/i.test(error.message));
     if (inputLimit && typeof InputTokenLimitError === 'function') {
@@ -30,7 +35,7 @@ export function createHarnessModelErrorMapper(library) {
       // This is a local provider API key, so official-account login is not the remedy.
       return new ActionRequiredError(error.message, 'config', options);
     }
-    if (TERMINAL_STATUSES.has(status) || TERMINAL_CODES.has(code)) {
+    if (quotaExhausted || TERMINAL_STATUSES.has(status) || TERMINAL_CODES.has(code)) {
       return new NonRetriableError(error.message, options);
     }
     const rateLimited = status === 429 || RATE_LIMIT_CODES.has(code);

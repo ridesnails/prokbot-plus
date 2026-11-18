@@ -1,5 +1,6 @@
 import { t } from './i18n.js';
 import { node, iconButton, item, toggle, menu, confirmAction } from './ui.js';
+import { clientId } from './ids.js';
 
 // Shared building blocks for the media and web tool pages: provider lists, editor dialogs and form fields.
 export const labels = { image: '图片生成', video: '视频生成', watchVideo: '视频理解', videoReview: '视频审核' };
@@ -55,7 +56,7 @@ export function sectionHead(title, addLabel, onAdd) {
 
 export const modelOptions = (config, kind) => [['', t('停用')], ...config.models.filter(entry => entry.kind === kind && entry.enabled
   && config.providers.find(provider => provider.id === entry.providerId)?.enabled).map(entry => [entry.id, entry.name])];
-export const uid = () => `service-${crypto.randomUUID().slice(0, 8)}`;
+export const uid = () => clientId('service');
 
 export function providerDialog(panel, { adapters, save, act }) {
   const { dialog, form, body, submit } = modal(panel, '供应商');
