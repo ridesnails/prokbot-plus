@@ -371,7 +371,16 @@ export function serializeToolCalls(calls) {
   return [...streamToolCalls(calls)];
 }
 
-export function parseToolArguments(name, text) {
+/**
+ * Arguments of a model tool call. Compatible endpoints send no argument text for a call without
+ * parameters; that means {} only for a tool that requires none, so lost arguments are never run as {}.
+ */
+export function parseToolArguments(name, text, tools) {
+  if (text === undefined || (typeof text === 'string' && !text.trim())) {
+    const tool = tools?.find(item => item?.name === name);
+    const required = (tool?.parameters?.jsonSchema ?? tool?.parameters)?.required;
+    if (tool && !(Array.isArray(required) && required.length)) return {};
+  }
   try { return JSON.parse(text); }
   catch (cause) { throw new ModelRequestError(`Invalid tool arguments for ${name}`, { cause }); }
 }

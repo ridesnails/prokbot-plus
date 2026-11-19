@@ -38,7 +38,7 @@ def prepare_extensions(app, bundle_id, group, commands):
     if not plugins.exists():
         raise ValueError('Missing original extensions; provide the complete IPA or explicitly use --remove-extensions')
     if {p.name for p in plugins.iterdir()} != set(EXTENSIONS):
-        raise ValueError('Expected all three original 1.16.0 extensions')
+        raise ValueError('Expected all three original extensions')
     records = []
     for name, (suffix, expected) in EXTENSIONS.items():
         extension = plugins / name

@@ -7,7 +7,7 @@ export const groups = [
   { items: [['overview', '概览', 'overview']] },
   { title: '模型服务', items: [['model', '对话模型', 'model'], ['speech', '语音', 'voice'], ['media', '图片与视频', 'image'], ['web-services', '联网工具', 'globe']] },
   { title: 'Agent', items: [['harness', '内置能力', 'toggles'], ['skills', '技能', 'book'], ['apps', '应用', 'plug'], ['prompts', '提示词', 'text']] },
-  { title: '设备与网络', items: [['devices', '设备与通知', 'devices'], ['network', '远程访问', 'link'], ['execution', '执行环境', 'monitor']] },
+  { title: '设备与网络', items: [['devices', '设备与通知', 'devices'], ['web-client', '网页版', 'external'], ['network', '远程访问', 'link'], ['execution', '执行环境', 'monitor']] },
   { title: '协作与集成', items: [['federation', 'Host 协作', 'swap'], ['webhooks', 'Webhook', 'bolt'], ['sharing', '分享', 'share']] },
 ];
 

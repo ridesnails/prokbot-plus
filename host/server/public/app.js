@@ -15,6 +15,7 @@ import { createSkillsEditor } from './skills.js';
 import { createApps } from './apps.js';
 import { createPromptEditor } from './prompts.js';
 import { createDevices } from './devices.js';
+import { createWebClientPage } from './web-client.js';
 import { createNetworkEditor } from './network.js';
 import { createExecutionEditor } from './execution.js';
 import { createFederationEditor } from './federation.js';
@@ -84,6 +85,7 @@ const views = {
   overview: createOverview(context), general: createGeneral(context), model: createModelPage(context),
   speech: createSpeechPage(context), media: createMediaEditor(context), 'web-services': createWebServicesEditor(context),
   harness: createHarnessEditor(context), skills: createSkillsEditor(context), apps: createApps(context), prompts: createPromptEditor(context), devices: createDevices(context),
+  'web-client': createWebClientPage(context),
   network: createNetworkEditor(context), execution: createExecutionEditor(context), federation: createFederationEditor(context),
   webhooks: createWebhookEditor(context), sharing: createSharingEditor(context),
 };

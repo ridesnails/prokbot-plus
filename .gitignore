@@ -32,3 +32,6 @@ android/shell/app/build/
 android/shell/local.properties
 android/shell/hs_err_pid*.log
 android/shell/replay_pid*.log
+
+# Host service dependencies for local tests (the image installs its own)
+host/server/node_modules/

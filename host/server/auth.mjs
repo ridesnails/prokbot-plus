@@ -21,6 +21,12 @@ const publicDevice = ({
 }) => ({ id, name, platform, createdAt, revokedAt, lastSeenAt });
 const normalizeKey = (value) =>
   typeof value === "string" ? value.replace(/[\s-]/g, "").toUpperCase() : "";
+const validDeviceName = (value) =>
+  check(
+    typeof value === "string" && value.trim().length > 0 && value.length <= 80,
+    400,
+    "设备名称需要 1–80 个字符",
+  );
 export class Auth {
   constructor(
     dataDir,
@@ -129,38 +135,48 @@ export class Auth {
       .filter((item) => item.expiresAt > Date.now())
       .map(({ id, expiresAt }) => ({ id, expiresAt }));
   }
-  async pair({ pairingKey, deviceName, platform, clientKind }) {
-    check(
-      typeof deviceName === "string" &&
-        deviceName.trim().length > 0 &&
-        deviceName.length <= 80,
-      400,
-      "设备名称需要 1–80 个字符",
-    );
-    check(
+  /**
+   * Pairs a client with a one-time code. `web` is set only by the Host's own web client sign-in;
+   * clients pairing through /connect/pair are desktops, Android phones or iOS devices.
+   */
+  async pair({ pairingKey, deviceName, platform, clientKind }, { web = false } = {}) {
+    validDeviceName(deviceName);
+    if (!web) check(
       ["desktop", "ios"].includes(platform),
       400,
       "设备类型应为 desktop 或 ios",
     );
-    const token = secret();
-    const id = randomUUID();
-    await this.store.mutate((state) => {
+    const kind = web ? "web" : platform === "desktop" && clientKind === "android" ? "android" : platform;
+    return this.addDevice(deviceName, kind, state => {
       const index = state.pairing.findIndex(
         (item) =>
           item.hash === hash(normalizeKey(pairingKey)) &&
           item.expiresAt > Date.now(),
       );
       check(index >= 0, 401, "配对码无效、已使用或已过期");
+      return () => state.pairing.splice(index, 1);
+    });
+  }
+  /** A browser opened from the signed-in admin page; the administrator needs no pairing code. */
+  async addWebDevice(deviceName) {
+    return this.addDevice(deviceName, "web", () => () => {});
+  }
+  async addDevice(deviceName, platform, authorize) {
+    validDeviceName(deviceName);
+    const token = secret();
+    const id = randomUUID();
+    await this.store.mutate((state) => {
+      const consume = authorize(state);
       check(
         state.devices.filter((item) => !item.revokedAt).length < 100,
         409,
         "设备数量已达上限，请先撤销不用的设备",
       );
-      state.pairing.splice(index, 1);
+      consume();
       state.devices.push({
         id,
         name: deviceName.trim(),
-        platform: platform === "desktop" && clientKind === "android" ? "android" : platform,
+        platform,
         hash: hash(token),
         createdAt: new Date().toISOString(),
         revokedAt: null,

@@ -96,6 +96,36 @@ test('moveBefore falls back to insertBefore, and a native one stays', () => {
   assert.equal(vm.runInContext('Element.prototype.moveBefore === native && __grokbotCompat.added.length', current), 0);
 });
 
+test('Safari observes the content box when the interface asks for device pixels', () => {
+  const dom = `
+    globalThis.ResizeObserverEntry = class ResizeObserverEntry {
+      constructor(width, height) { this.contentRect = { width, height }; this.contentBoxSize = [{ inlineSize: width, blockSize: height }]; }
+    };
+    globalThis.ResizeObserver = class ResizeObserver {
+      observe(target, options) {
+        if (options && !['content-box', 'border-box'].includes(options.box)) throw new TypeError('Type error');
+        this.box = options?.box;
+      }
+    };
+    globalThis.devicePixelRatio = 3;`;
+  const context = vm.createContext({ navigator: { userAgent: 'Mozilla/5.0 (iPhone) Version/26.0 Safari/605.1.15', language: 'en' },
+    URL, crypto, structuredClone });
+  vm.runInContext(dom, context);
+  vm.runInContext(source, context);
+  assert.equal(vm.runInContext('const o = new ResizeObserver(); o.observe({}, { box: "device-pixel-content-box" }); o.box', context), 'content-box');
+  assert.equal(vm.runInContext('o.observe({}, { box: "border-box" }); o.box', context), 'border-box');
+  assert.equal(vm.runInContext('JSON.stringify(new ResizeObserverEntry(100.4, 50).devicePixelContentBoxSize)', context),
+    '[{"inlineSize":301,"blockSize":150}]');
+  assert.deepEqual([...vm.runInContext('__grokbotCompat.added', context)], ['ResizeObserver device-pixel-content-box']);
+
+  // Chromium reports device pixels itself and keeps its own observe().
+  const chromium = vm.createContext({ navigator: { userAgent: 'Chrome/134.0.0.0', language: 'en' }, URL, crypto, structuredClone });
+  vm.runInContext(dom + `Object.defineProperty(ResizeObserverEntry.prototype, 'devicePixelContentBoxSize', { get() { return []; } });
+    globalThis.nativeObserve = ResizeObserver.prototype.observe;`, chromium);
+  vm.runInContext(source, chromium);
+  assert.equal(vm.runInContext('ResizeObserver.prototype.observe === nativeObserve && __grokbotCompat.added.length', chromium), 0);
+});
+
 test('a current WebView keeps every native built-in', () => {
   const context = vm.createContext({ navigator: { userAgent: 'Chrome/134.0.0.0', language: 'en' },
     URL, crypto, structuredClone });

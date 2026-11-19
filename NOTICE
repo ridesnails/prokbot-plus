@@ -14,7 +14,7 @@ is distributed for noncommercial purposes only, and identifies its
 modifications below. The noncommercial conditions also apply to everything
 ProkBot Plus adds; none of it is offered under terms that allow commercial use.
 
-Modifications made in ProkBot Plus (2026-11-07 to 2026-11-18)
+Modifications made in ProkBot Plus (2026-11-07 to 2026-11-19)
 --------------------------------------------------------------
 
 1. Windows x64 client (new)
@@ -195,6 +195,30 @@ Modifications made in ProkBot Plus (2026-11-07 to 2026-11-18)
     and checks nested ZIP/APK and gzip content before distribution.
     The portable iOS CLI regressions use explicit UTF-8 subprocess output.
 
+19. Web client (new)
+   - web/patchers/: builds a web client bundle from the user's own official
+     Windows installer with the Windows recipes and the Android interface
+     patches (patch.mjs), and installs it on the user's own Host through the
+     admin API (upload.mjs). The bundle is never committed or published.
+   - web/client/: browser start-up data, the browser stand-in for the Android
+     shell's native calls, back navigation, keyboard, theme and notification
+     handling, and browser styles.
+   - host/server/web-client.mjs (new) and changes to index.mjs, auth.mjs,
+     proxy.mjs and push-service.mjs: bundle verification, atomic install and
+     serving only to signed-in browsers, the web device platform, cookie
+     sign-in bound to the Host origin and a request header, admin upload and
+     open routes, and the computer view bridge injected into noVNC pages for
+     web devices. host/server/public/: sign-in page (web-login.*), the admin
+     Web client page (web-client.js), navigation and English strings.
+   - android/client/: a Safari ResizeObserver shim (compat.js), deep links
+     that wait for the Bot list (bridge.js), and web-client handling in
+     services.js and webview.js; android/patchers/patch.mjs exports the
+     shared build steps.
+   - Release packaging adds a sixth tool archive (web, android, windows and
+     mac); the homepage version generator lists the web client.
+   - Tests: host/tests/web-client.test.mjs, web/tests/ (bundle build and
+     upload, a fixture Host and a Playwright browser matrix).
+
 Client tools update (2026-11-14): separate Android app and renderer versions,
 verify patched inputs in scratch, and publish independently checked client
 tool archives. Official programs and generated clients are not distributed.
@@ -221,6 +245,24 @@ Subpath) with index, so backup and update work on Docker 29 with Compose 2.40
 (item 17). Updated host/server/package-lock.json (hono, @hono/node-server,
 body-parser) and the bundled mac/patchers/desktop/node_modules (@electron/asar
 4.3.2 with glob and minimatch).
+
+ProkBot Plus 1.4.0 (2026-11-18): per-Bot model routing, backup profiles and
+manual compaction contributed through pull request #2 (item 2).
+
+ProkBot Plus 1.5.0 (2026-11-19): the web client (item 19). Generated web
+client bundles contain the official interface; they are built by users and
+installed only on their own Host, and are not distributed.
+
+ProkBot Plus 1.5.1 (2026-11-19): fixes from the upstream review of the merge
+request. host/runtime/openai-chat.mjs accepts either completion marker and
+tool calls after "stop"; host/runtime/model-common.mjs treats empty tool
+arguments as {} for tools without required parameters;
+host/runtime/reliability/tool-order.mjs leaves IDs reused by concurrent
+responses unordered; mac/clients/desktop/gateway.mjs checks the device
+credential before disconnecting on HTTP 401; client-persistence.mjs keeps a
+damaged profile under another name; main.mjs applies the saved theme before
+the first paint; codex-prompt.mjs, host/deploy.py and
+ios/patchers/ios/patch-app.py wording and version pins.
 
 Tool-call validation (2026-11-15):
 `host/runtime/openai-chat.mjs` and `host/runtime/openai-responses.mjs` omit

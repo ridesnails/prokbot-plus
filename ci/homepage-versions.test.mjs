@@ -73,6 +73,9 @@ test('Android names its interface release and fallback; Mac notes a newer offici
   const zh = render(fixture,'zh',data), en = render(fixture,'en',data);
   assert.ok(zh.includes('界面取自 Windows **1.1.0** 安装包（推荐；用不了再用 0.71.2）'));
   assert.ok(en.includes('interface taken from the Windows **1.1.0** installer (recommended; 0.71.2 if it does not work)'));
+  assert.ok(zh.includes('| 网页版（浏览器，非官方） | 不用安装 | 界面取自 Windows **1.1.0** 安装包（推荐；用不了再用 0.71.2），生成后上传到你的 Host |'));
+  assert.ok(en.includes('| Web client (browser, unofficial) | Nothing to install | Interface taken from the Windows **1.1.0** installer ' +
+    '(recommended; 0.71.2 if it does not work), built once and uploaded to your Host |'));
   assert.ok(zh.includes('| 0.71.2（尚未适配 1.1.0；未在 Mac 真机上测试） |'));
   assert.ok(en.includes('| 0.71.2 (not yet adapted to 1.1.0; not tested on a Mac) |'));
   data.snap.mac.version = '0.71.2';

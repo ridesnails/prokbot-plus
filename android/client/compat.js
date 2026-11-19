@@ -1,12 +1,12 @@
 // Compatibility for older Android System WebView builds, loaded before the interface and
-// before the pairing page.
+// before the pairing page. The web client (web/) loads it too, in Safari and Firefox as well.
 //
 // The official interface is built for Electron's current Chromium. Its syntax needs Chromium
 // 85 and `Intl.Segmenter` needs 87, but it also calls newer built-ins without checking for
 // them: `URL.canParse` (Chromium 120), `Array.prototype.toSorted` (110), `findLast` (97),
 // `Object.hasOwn` (93), `at` (92), `crypto.randomUUID` (92), `showPopover` (114) and others.
 // On an older WebView the page parses, rendering throws, React unmounts the tree and the
-// window stays blank. Missing built-ins are added here; nothing is replaced. The pairing
+// window stays blank. Missing built-ins are added here; nothing that works is replaced. The pairing
 // page uses top-level await (Chromium 89), so 89 is the minimum for the app. If a page
 // still does not start, the blank page is replaced by an explanation with the WebView version.
 //
@@ -269,6 +269,27 @@
     define(Element.prototype, 'moveBefore', moveBefore, 'Element.prototype.moveBefore');
     if (typeof DocumentFragment === 'function') define(DocumentFragment.prototype, 'moveBefore', moveBefore, 'DocumentFragment.prototype.moveBefore');
     if (typeof Document === 'function') define(Document.prototype, 'moveBefore', moveBefore, 'Document.prototype.moveBefore');
+  }
+
+  // ResizeObserver's device-pixel-content-box (Chromium 84; not in Safari, which the web client
+  // also serves): the 1.1.0 interface sizes chat images with it, and Safari's observe() throws
+  // on the unknown box, so every image in a conversation fails to render. There, observe() takes
+  // the content box instead and entries report it scaled by the device pixel ratio.
+  if (typeof ResizeObserver === 'function' && typeof ResizeObserverEntry === 'function' &&
+      !('devicePixelContentBoxSize' in ResizeObserverEntry.prototype)) {
+    var observeBox = ResizeObserver.prototype.observe;
+    Object.defineProperty(ResizeObserver.prototype, 'observe', { writable: true, configurable: true, enumerable: true,
+      value: function observe(target, options) {
+        if (options && options.box === 'device-pixel-content-box') options = Object.assign({}, options, { box: 'content-box' });
+        return observeBox.call(this, target, options);
+      } });
+    Object.defineProperty(ResizeObserverEntry.prototype, 'devicePixelContentBoxSize', { configurable: true, enumerable: true,
+      get: function () {
+        var ratio = global.devicePixelRatio || 1, box = this.contentBoxSize && this.contentBoxSize[0];
+        var inline = box ? box.inlineSize : this.contentRect.width, block = box ? box.blockSize : this.contentRect.height;
+        return Object.freeze([Object.freeze({ inlineSize: Math.round(inline * ratio), blockSize: Math.round(block * ratio) })]);
+      } });
+    added.push('ResizeObserver device-pixel-content-box');
   }
 
   // ---- startup check -----------------------------------------------------------------------

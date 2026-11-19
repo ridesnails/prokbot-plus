@@ -7,11 +7,13 @@ body:
       value: |
         提交前请确认没有贴出 API Key、管理员密码、配对码或服务器公网地址。安全问题请走私密漏洞报告，不要公开提交。
         Do not post API keys, admin passwords, pairing codes or public server addresses. Report security issues privately.
+
+        想要新功能或支持新平台？请改用「功能建议」。 / Asking for a new feature or platform? Use Feature request instead.
   - type: dropdown
     id: part
     attributes:
       label: 出问题的部分 / Affected part
-      options: [服务端 Host, Windows 客户端, Mac 客户端, iOS 客户端, Android 客户端, 文档 / Docs, 其他 / Other]
+      options: [服务端 Host, Windows 客户端, Mac 客户端, iOS 客户端, Android 客户端, 网页版 / Web client, 文档 / Docs, 其他 / Other]
     validations:
       required: true
   - type: textarea
@@ -31,7 +33,7 @@ body:
     id: env
     attributes:
       label: 环境 / Environment
-      description: 例如 Ubuntu 24.04 + Docker 29，Windows 11 客户端，Anthropic 格式 / e.g. Ubuntu 24.04 + Docker 29, Windows 11 client, Anthropic format
+      description: 例如 Ubuntu 24.04 + Docker 29，Windows 11 客户端或 iPhone Safari 网页版，Anthropic 格式 / e.g. Ubuntu 24.04 + Docker 29, Windows 11 client or the web client in iPhone Safari, Anthropic format
     validations:
       required: true
   - type: textarea

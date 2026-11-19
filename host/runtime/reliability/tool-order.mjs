@@ -8,6 +8,11 @@ const ORDERED_TOOLS = new Set(['SendToUser', 'SendToAgent']);
 const MAX_WAIT_MS = 15_000;
 const STALE_MS = 10 * 60_000;
 const calls = new Map();
+// Some providers number call IDs per response, so concurrent conversations can reuse an ID. Such
+// calls run unordered (as without this module) instead of failing the turn or waiting on each other.
+// The colliding calls finish well within a minute; after that the ID is ordered normally again.
+const SHARED_MS = 60_000;
+const shared = new Map();
 let sweepTimer;
 
 function release(id, entry) {
@@ -35,15 +40,23 @@ function scheduleSweep() {
 /** Called by the model layer with one response's tool calls in written order. */
 export function recordToolCallOrder(list) {
   const now = Date.now();
+  for (const [id, until] of shared) if (until <= now) shared.delete(id);
   const registered = new Map();
   const ordered = list.filter(({ toolCallId, toolName }) => ORDERED_TOOLS.has(toolName) && typeof toolCallId === 'string' && toolCallId);
   const ids = new Set();
   for (const { toolCallId } of ordered) {
-    if (ids.has(toolCallId) || calls.has(toolCallId)) throw new Error('Ordered tool call ID is already registered');
+    if (ids.has(toolCallId)) throw new Error('Ordered tool call ID is repeated in one response');
     ids.add(toolCallId);
   }
   let previous;
   for (const { toolCallId } of ordered) {
+    const existing = calls.get(toolCallId);
+    if (existing || shared.has(toolCallId)) {
+      // Neither response may take over or wait on the other's entry for an ambiguous ID.
+      if (existing) release(toolCallId, existing);
+      shared.set(toolCallId, now + SHARED_MS);
+      continue;
+    }
     let resolve;
     const done = new Promise(settle => { resolve = settle; });
     const entry = { previous, done, resolve, createdAt: now };

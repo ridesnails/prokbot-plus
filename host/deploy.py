@@ -359,7 +359,12 @@ def recover(args, home, dc, services):
     images = manifest.get('serviceImages')
     if (not isinstance(images, dict) or set(images) != set(services) or
             any(not isinstance(i, str) or not re.fullmatch(r'sha256:[0-9a-f]{64}', i) for i in images.values())):
-        raise ValueError('Backup has no verified service image IDs for this topology. Use data-only restore; do not guess tags.')
+        # Backups from backup.py or an older deploy.py record no image IDs. Starting them would mean
+        # guessing which image wrote the data, so they get the data-only path with its exact command.
+        raise ValueError('Backup has no verified service image IDs for this topology, so it cannot be started '
+                         'automatically; do not guess tags. Use data-only restore: python3 release/backup.py restore '
+                         f'--project <new project> --directory {source} --image <verified local Host image ID>, '
+                         'then start that project only after confirming no other copy of this Host identity runs.')
     suffixes = {n for s in services for n in volume_backup.MOUNTS[s]}
     if {r.get('suffix') for r in manifest['volumes'] if isinstance(r, dict)} != suffixes:
         raise ValueError('Backup volumes do not match the selected recovery topology.')

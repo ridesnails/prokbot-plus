@@ -20,6 +20,7 @@ flowchart LR
   Mac[Mac client] --> Admin
   iOS[iOS client] --> Admin
   And[Android client] --> Admin
+  Web[Web client<br/>any browser] --> Admin
   subgraph Host container
     Admin[Admin service :8000<br/>login / pairing / config / proxy] --> Core[Original Host 127.0.0.1:1340<br/>Agent / tools / context]
     Core --> Adapter[Model adapter layer]
@@ -40,7 +41,7 @@ Run `node ci/check-inputs.mjs` from the full repository to see the versions actu
 | Deployment, upgrades, backups | `host/deploy.py` → `host/release/`; container startup lives in `host/deploy/supervisor.mjs` | Test fresh installs and upgrades with existing volumes separately; distinguish Host and desktop CPU architecture |
 | Upstream Host or desktop | `host/recipes/host/manifest.json` and sibling recipes; ARM native dependencies are locked in `host/release/arm-runtime/` | Digest checks, patch generation, target image, startup with old volumes, actual chat and desktop |
 | Server feature | `host/server/` owns admin APIs, storage and pages; `host/runtime/` owns agent and model behavior | After saving a setting in the console, verify that a client conversation actually uses it |
-| Desktop or mobile update | Mac and Windows share `mac/clients/desktop/`. Android consumes the Windows extractor and recipes. iOS is independent | Each platform's `supported.json` or recipe manifest, signing and pairing. Exercise all consumers of shared code |
+| Desktop or mobile update | Mac and Windows share `mac/clients/desktop/`. Android and the web client consume the Windows extractor and recipes, and the web client shares the Android bridge. iOS is independent | Each platform's `supported.json` or recipe manifest, signing and pairing. Exercise all consumers of shared code |
 | Optional capability | Prefer an app or skill when possible: [app development](#app-development). Change the runtime only for Host behavior | Install, authorize, invoke and remove the capability. Never distribute upstream programs |
 
 ## Feature comparison
@@ -68,7 +69,7 @@ Run `node ci/check-inputs.mjs` from the full repository to see the versions actu
 | 🔁 Live calls | Official realtime voice model | Recognition and synthesis each use a service you choose (experimental) | Recognition and synthesis services |
 | 🔁 Image and video generation | Official service | OpenAI-compatible image APIs (with set aspect ratios and editing from reference images), WaveSpeed and others | Provider keys |
 | 🔁 Web search | Official search | The built-in web access of Claude or OpenAI Responses models, or a separately configured DeepSeek or HTTP JSON search service | Optional |
-| 🔁 Push notifications | Official push | iOS: APNs when the app is signed with the push entitlement, otherwise Bark. Android: the app keeps its own connection to the Host | For iOS, the Bark app, or an Apple Developer account and an APNs key (.p8) |
+| 🔁 Push notifications | Official push | iOS: APNs when the app is signed with the push entitlement, otherwise Bark. Android: the app keeps its own connection to the Host. Web client: browser notifications while the page is open | For iOS, the Bark app, or an Apple Developer account and an APNs key (.p8) |
 | 🔁 Access from outside your network | Connects directly to the official cloud | IP address, Tailscale, an HTTPS reverse proxy, or the built-in Tailcat | A domain, depending on the setup |
 | ⛔ Telemetry and error reports | Sent to the vendor | Turned off | Nothing |
 | ⛔ Automatic updates | Official updates | Turned off; patches are pinned to the supported versions | Nothing |
@@ -131,7 +132,7 @@ The original sends model requests to an official classifier, which decides which
 | --- | --- |
 | `host/runtime/model-session.mjs` | Entry point. Dispatches by `apiFormat` (`openai` / `openai-responses` / `anthropic`) |
 | `host/runtime/model-routing.mjs` | Validates multi-service/profile configuration and resolves default or Bot override routes with backup chains |
-| `host/runtime/openai-chat.mjs` | Chat Completions. Appends `/chat/completions` to the address |
+| `host/runtime/openai-chat.mjs` | Chat Completions. Appends `/chat/completions` to the address. Common differences of compatible endpoints are accepted as upstream originally did: either `[DONE]` or `finish_reason` ends the stream; tool calls still run when `finish_reason` is `stop`; an empty argument string means `{}` for a tool with no required parameters and is still an error otherwise |
 | `host/runtime/openai-responses.mjs` | Responses. Appends `/responses` to the address. Stateless calls |
 | `host/runtime/anthropic-messages.mjs` | Messages. The address can be the root address or end in `/v1` |
 | `host/runtime/model-common.mjs` | SSE parsing, error normalization, image and file conversion, reasoning source tags, optional parameter fallback |
@@ -208,7 +209,7 @@ The original prompt asks the Bot to reply the way people text: first one sentenc
 
 The model layer in this project waits until the whole reply has finished, then hands all the tool calls to the Harness at once. This way a retry after a mid-stream error doesn't run tools twice. But the reliability layer `host/runtime/reliability/tool-journal.mjs` writes the execution intent to disk before it runs each tool, so when several messages start at the same time, whichever finishes writing first is sent first.
 
-`host/runtime/reliability/tool-order.mjs` (new in this version) records the order in which `SendToUser` / `SendToAgent` were written in each reply, and makes each message wait until the previous one has run before it starts. Other tools still run in parallel. If the previous message never runs, it waits at most 15 seconds. On cancel, it stops waiting right away.
+`host/runtime/reliability/tool-order.mjs` (new in this version) records the order in which `SendToUser` / `SendToAgent` were written in each reply, and makes each message wait until the previous one has run before it starts. Other tools still run in parallel. If the previous message never runs, it waits at most 15 seconds. On cancel, it stops waiting right away. Some services number call IDs, so two concurrent replies can use the same ID; that message then runs unordered (for one minute) instead of failing the conversation.
 
 If the previous step contained only one plain-text `SendToUser` call and the immediately following Host receipt confirms success, a new model response that requests only the exact same text stops with a non-retryable error before delivery. The original message and model usage are retained. This check does not cross user turns, remove historical rows, or infer delivery for attachments, multi-tool steps, or missing or unsuccessful receipts.
 
@@ -298,6 +299,45 @@ The official Android app (`ai.x.grok.bot` 1.16.0) is a React Native app with Goo
 
 **Differences from the desktop clients**: no Tailcat; the Bot cannot run commands on or operate the phone (`getLocalToolPermission` answers `never`); no "Teach a task".
 
+<a id="web-client"></a>
+### Web client (new in this release)
+
+The web client runs the same interface and bridge as the Android client in a browser. What the Android shell does (serving the interface files, holding the device token, injecting the computer view bridge) is done by the Host itself, and browser features replace the shell's native calls. Usage is in [`web/README.en.md`](../web/README.en.md).
+
+**Bundle** (`web/patchers/patch.mjs`):
+
+1. The same path as the Android builder: download and verify the official Windows installer, run that version's Windows recipe, check the hashes of the interface entry and preloads, and apply that version's interface changes from `renderer-patches.mjs`. 1.1.0 is recommended with 0.71.2 as fallback; the version list is `android/patchers/supported.json`.
+2. Rewrite the interface entry: insert `boot-data.js`, `compat.js`, `bridge.js`, `web-shell.js`, the styles and the web app manifest before the official module script; add `'self'` to the CSP `frame-src` (the Host serves the computer view itself) and `wss:` to `connect-src` (live calls over https). Each of the three anchors must be unique.
+3. Write a ZIP whose first entry, `web-bundle.json` (`grokbot-web-bundle/v1`), lists the size and SHA-256 of every other file: `renderer/` is the interface; `client/` holds `android/client/` (without the shell's own connect page and `native.js`), `web/client/`, the shared desktop modules, the wrapped official preloads and the official icon.
+4. The bundle contains the official interface. Users build it themselves and upload it to their own Host; it never goes into the repository or a release. `--upload` uses `web/patchers/upload.mjs` to sign in to the admin API, upload, enable and sign out; the administrator password is read only from the environment, a file or the terminal.
+
+**Host** (`host/server/web-client.mjs`, routes in `index.mjs`):
+
+- **Install**: the admin page uploads with an XHR PUT (with progress). The Host checks paths, sizes and hashes against the manifest, limits the file count, single file size and expanded total, unpacks beside the current directory and swaps it in by renaming; if any step fails, the previous bundle is untouched. Leftover temporary directories from an interrupted upload are removed at start-up. Files carry ETags, and text types are gzipped on request.
+- **Sign-in page**: `/web/login` is the Host's own page (`public/web-login.*`) with no official code. `/web/renderer/*` and `/web/client/*` go only to signed-in browsers; without a sign-in, the interface entry redirects to the sign-in page and any other file answers 401.
+- **Sign-in**: `/web/api/pair` creates a `platform: web` device from a pairing code, sharing the rate limits of the other clients' pairing, and puts the device token in the `grokbot_web` cookie (HttpOnly, SameSite=Strict, 400 days, Secure on https). When a browser signs in again, its previous device is revoked first. **Open in this browser** on the admin page lets the signed-in administrator create a device directly, without a pairing code; a browser that is already signed in keeps its device.
+- **Device API**: `/api`, `/events`, `/local`, `/notifications` and the other device routes accept this cookie, but only together with `x-grokbot-web: 1` and an Origin equal to the Host's. Another site would need a CORS preflight to send that header, which the Host never grants, so this is a second line of defence besides SameSite. The cookie's token must belong to a `web` device; a token of any other platform is refused. `web` devices have no desktop execution permission (`desktop-capabilities.mjs` accepts only `desktop`). Revoking a device also revokes its computer view tickets, push registration and open connections.
+- **Computer view**: the iframe loads the Host's own `/vnc/desktop/` and `/vnc/fork/` with the ticket cookie the Host issues. For `web` devices, the Host inserts `__grokbot-vnc-bridge.js` and `__grokbot-vnc-preload.js` into the noVNC page, taken from the bundle's `vnc-bridge.js` and wrapped official `preload-vnc.cjs`, in place of the injection the Android gateway performs. `webview.js` adds `encrypt=0` only on http pages, so the view uses `wss:` on an https Host.
+
+**Browser layer** (`web/client/`) replaces the native part of the Android shell. The rest of the bridge (`bridge.js`, `services.js`, `gateway.js`, `webview.js`, `layout.js`, `android.css`, `compat.js`) is shared with Android unchanged, so the layout rules are the same: the official phone layout below 600 px, conversation details as a full-screen layer below 792 px, and the desktop arrangement above.
+
+- `boot-data.js`: a classic ES5 script that runs before the interface and prepares the start-up data the shell would inject: language, theme, settings and the `?agent=` deep link (removed from the address bar after reading, so a reload does not jump back). It adds `grokbot-web` to `<html>`, plus `grokbot-apple` on Apple devices, and sets the viewport: iPhone and iPad disable zoom so focusing the message field does not enlarge the page, and Android uses `interactive-widget=resizes-content` so the keyboard shrinks the page.
+- `native.js`: browser implementations of the shell's `/__native/*` calls. Settings and interface state live in localStorage (only for the current page in private browsing); downloads use Blob links; external links open in a new tab; pairing and sign-out go through `/web/api`; a 401 returns to the sign-in page. The web client connects only to the Host that serves the page and refuses any other address entered in the interface.
+- `web-shell.js`:
+  - back: a placeholder history entry hands the browser's back button and back gesture to the bridge first, which goes back one step (closing a panel, returning from a conversation to the list); only when the bridge has nothing to close does the page leave;
+  - page visibility and the system dark mode become the shell's focus and theme events;
+  - `visualViewport` measures the visible area and the page is pinned to it, so neither the phone keyboard nor the browser toolbars cover the message field;
+  - while the page is open it follows `/notifications/events` and raises browser notifications for Bots not on screen; clicking one opens that Bot. Notification IDs are de-duplicated with the last 50 kept in sessionStorage, so a reload does not repeat them; the stream closes when the page enters the back-forward cache and reconnects when it returns.
+- `web.css`: browser-only styles, such as pinning the page and keeping clear of the status bar and home indicator when opened from the home screen.
+
+**Changes to code shared with Android**:
+
+- `compat.js` has one new shim: Safari's ResizeObserver does not support `device-pixel-content-box`, and the official interface threw when it observed an image, blanking the whole conversation. Where the feature is missing, the shim observes `content-box` instead and derives `devicePixelContentBoxSize` from `devicePixelRatio`. Browsers that have the feature are unaffected.
+- When `bridge.js` opens the Bot of a deep link or notification, it first confirms the Bot is in the Host's list, then waits (up to 15 seconds) for the interface to list Bots before focusing it. Previously, on a cold start the focus event could arrive before the list and be lost; Android notification clicks had the same problem.
+- A LAN http address is not a secure context, so browsers do not provide `crypto.randomUUID`; the existing shim in `compat.js` covers it. The microphone, dictation and notifications work only on https or `localhost`, and noVNC shows an unencrypted-connection note.
+
+**Tests**: `host/tests/web-client.test.mjs` covers the Host side (bundle checks, install and replacement, caching, cookie rules, VNC injection, sign-in and admin routes); `web/tests/web-patch.test.mjs` covers building and uploading; `web/tests/browser-flows.py` drives Playwright through the full flow on Chromium, Firefox and WebKit at 8 device sizes against `fixture-host.mjs` (the real Host admin service in front of a mock core with demo data).
+
 ### iOS client
 
 The original iOS client is built with React Native. Here an injected dynamic library (Objective-C, source in `ios/clients/ios/`, compiled with `build.py`) sends the requests meant for the official service to your Host, and a few fixed changes are made to the Hermes bytecode. The three extensions (widgets, share and notifications) are kept, each with its own bundle ID. The patch outputs an unsigned IPA, and you sign the main app and all three extensions yourself (see [client installation and signing](AI-INSTALL.en.md#client-packages)).
@@ -341,6 +381,9 @@ To develop an app, declare code, remote MCP or skills in a `grokbot-app` JSON pa
 | `android/shell/` | Android shell (Kotlin): local gateway, credential, pairing, notifications, files and the back gesture; `release-shell.mjs` builds `android/dist/grokbot-android-shell.apk` |
 | `android/client/` | Bridge in the WebView: replaces Electron's main process and preloads, computer view, layout adjustments, anchor fallback, connection page |
 | `android/patchers/` | Android builder: `patch.mjs`, `apk.mjs` (ZIP and APK signing), `renderer-patches.mjs`, `supported.json` |
+| `web/client/` | The web client's browser layer: start-up data, `native.js` in place of the shell's native calls, back navigation, keyboard and notifications (`web-shell.js`), browser styles |
+| `web/patchers/` | Building the web client bundle (`patch.mjs`, sharing inputs and interface patches with Android) and uploading it from the command line (`upload.mjs`) |
+| `host/server/web-client.mjs` | The Host side of the web client: checking, installing and serving the bundle, the sign-in cookie, injecting the computer view bridge; the sign-in page is `host/server/public/web-login.*` |
 | `ios/release/` | iOS patch entry point `patch-ios.py`: verifies the user's IPA and outputs an unsigned file |
 | `ios/clients/ios/` | Source of the injected library, native UI and feature adaptations (for example tunnel management in `GBNetwork.m` and voice transport in `GBVoiceSocket.m`); `audio-processing/` is the echo processing library |
 | `*/recipes/` | Patch data that copies bytes from the original files and adds this project's changes |
@@ -372,7 +415,10 @@ node --test "host/tests/*.test.mjs"      # server
 node --test "windows/tests/*.test.mjs"   # Windows client
 node --test "mac/tests/*.test.mjs"       # Mac / shared client
 node --test "android/tests/*.test.mjs"   # Android client
+node --test "web/tests/*.test.mjs"       # web client
 ```
+
+The Host's web client route test needs the admin service's dependencies: run `npm ci --prefix host/server` first, or that test is skipped. The web client's browser test, `python web/tests/browser-flows.py <bundle>`, also needs Playwright; see [`web/README.en.md`](../web/README.en.md#maintenance).
 
 The network layer of the iOS injected library has one more test, which runs on a Mac with the Xcode command line tools: `python3 ios/tests/ios-network.test.py`.
 
@@ -386,7 +432,8 @@ Coverage:
 - **Windows client**: window style, installer layout, finding Codex, Host image paths, command output encoding.
 - **Mac client**: attachments, external links, previews, sidebar and more.
 - **iOS network layer**: starting the Tailcat tunnel (concurrent requests start it once), restoring it, rebuilding it after connection errors, and shutting it down.
-- **Android client**: APK alignment, signing and tamper detection, the signing key, the interface entry and interface patches, wrapping the original preloads, Host attachment paths, computer view addresses, event stream parsing, anchor position arithmetic, image scaling, switching between the list and conversation pages on phones, the format of the last-active time.
+- **Android client**: APK alignment, signing and tamper detection, the signing key, the interface entry and interface patches, wrapping the original preloads, Host attachment paths, computer view addresses, event stream parsing, anchor position arithmetic, image scaling, switching between the list and conversation pages on phones, the format of the last-active time, the Safari ResizeObserver shim.
+- **Web client**: rewriting the interface entry, bundle contents and manifest, the upload sequence, building from the pinned installers; on the Host, bundle checks, install and replacement, caching, cookie rules, VNC injection, sign-in and admin routes; the browser test covers sign-in, deep links, images, notifications, sending, back navigation and sign-out at 8 device sizes.
 
 After changing code, it's a good idea to also check it for real:
 
@@ -405,13 +452,14 @@ After changing code, it's a good idea to also check it for real:
 | Change the admin page | `host/server/public/`. English strings are in `locales-en.js` |
 | Change the desktop client | `mac/clients/desktop/` is shared by Mac and Windows. Android packages `workspace.css` and `workspace-keys.cjs` along with the language, external-link and connector modules; all three clients use the same table and dialog-key behavior |
 | Change the Android client | The bridge is in `android/client/`; the shell is in `android/shell/`. After changing the shell, run `node android/shell/release-shell.mjs` to update the prebuilt shell and its digest (needs JDK 17+ and the Android SDK) |
+| Change the web client | The browser layer is in `web/client/`, the Host side in `host/server/web-client.mjs`. The bridge is shared with Android: after changing `android/client/`, run both the Android tests and the web client's browser test |
 | Support a new official client version | Windows: to keep the current release as a fallback, first move its inputs and recipes to `windows/patchers/desktop/<version>/`. Update `supported.json`, adjust the anchors in `windows/tools/desktop-recipes/spec.mjs` to the new originals and run `build.mjs`, then follow [desktop compatibility](#desktop-compatibility) for acceptance. For Android, also verify the WebView bridge and `renderer-patches.mjs` before updating `android/patchers/supported.json` (the older release moves into `fallback`) |
 | App (plugin) development | [App format and runtime](#app-development); the full development guide is in the Host package |
 
 <a id="desktop-compatibility"></a>
 ### Desktop versions and compatibility
 
-Windows x64 recommends **1.1.0** and falls back to **0.71.2**; Android's desktop renderer also recommends 1.1.0 with a 0.71.2 fallback; Mac ARM64 remains at **0.71.2**. The Android shell has its own [version](../README.en.md#client-versions). On November 14, 2026, the [Windows](https://api2.cursor.sh/updates/api/download/stable/win32-x64-user/sand) and [Mac](https://api2.cursor.sh/updates/api/download/stable/darwin-arm64/sand) feeds reported **1.1.0**. In the [dated snapshot](https://github.com/ferretgeek/prokbot-plus/blob/a868918f4e2f64ab6529b3afaf92dd6019235efe/ci/official-snapshot.json), `build` is a build ID. `observedArchiveSha256` and `observedAsarSha256` are the measured SHA-256 digests of the whole EXE/DMG and its ASAR, respectively; neither is a production pin. The [official changelog](https://x.ai/changelog/bot) stopped at **1.0.1** that day and attributed no features to 1.0.3 or 1.1.0.
+Windows x64 recommends **1.1.0** and falls back to **0.71.2**; Android's desktop renderer also recommends 1.1.0 with a 0.71.2 fallback; Mac ARM64 remains at **0.71.2**. The Android shell has its own [version](../README.en.md#client-versions). On November 14, 2026, the [Windows](https://api2.cursor.sh/updates/api/download/stable/win32-x64-user/sand) and [Mac](https://api2.cursor.sh/updates/api/download/stable/darwin-arm64/sand) feeds reported **1.1.0**. In the [dated snapshot](https://github.com/ferretgeek/prokbot-plus/blob/a868918f4e2f64ab6529b3afaf92dd6019235efe/ci/official-snapshot.json), `build` is a build ID. `observedArchiveSha256` and `observedAsarSha256` are the measured SHA-256 digests of the whole EXE/DMG and its ASAR, respectively; neither is a production pin. The [official changelog](https://x.ai/changelog/bot) stopped at **1.0.1** that day and attributed no features to 1.0.3 or 1.1.0. On November 19, 2026, both feeds reported **1.2.3**, and the Windows 1.2.3 installer carries a valid Anysphere Authenticode signature. This project does not support 1.2.3 yet; the patches still accept only the pinned releases above. The latest observation is in [`ci/official-snapshot.json`](../ci/official-snapshot.json); for Mac 1.2.3 it records only the digest of the whole DMG, without unpacking and measuring the ASAR.
 
 For 1.0.3, each platform lost 10 of 16 legacy recipe source paths; all six remaining files changed. Both preloads also differed from 1.0.1. The full installer digests were measured separately:
 
@@ -429,7 +477,7 @@ For 1.0.3, each platform lost 10 of 16 legacy recipe source paths; all six remai
 | --- | --- |
 | Electron preload to main process | RPC probes in `main.mjs` and `local-services.mjs` require the trusted window's main frame, a declared method and an installed callable handler. Check the synchronous boot snapshot, call arguments, success and failure replies, and event subscription and removal. Method names alone cannot establish compatibility. |
 | Renderer to Host gateway | `gateway.mjs` sends v3 `ready` once per port and closes a port on an explicit version mismatch. In-flight IDs are deduplicated per port; cancellation affects only that request, and closing the port discards late replies. Client cancellation cannot undo a command the Host has processed. |
-| Pairing, events and settings | `connection.mjs` encrypts the device credential and retries only the saved Host origin or Tailcat tunnel. Changing the endpoint requires fresh pairing; requests reject redirects. `streams.mjs` reports online only after `/events` returns HTTP 200 with a body and `text/event-stream`. It notifies the renderer on disconnect, reconnects with `Last-Event-ID`, and handles 401 as loss of device authorization. `client-persistence.mjs` keeps the previous settings if a write fails. |
+| Pairing, events and settings | `connection.mjs` encrypts the device credential and retries only the saved Host origin or Tailcat tunnel. Changing the endpoint requires fresh pairing; requests reject redirects. `streams.mjs` reports online only after `/events` returns HTTP 200 with a body and `text/event-stream`. It notifies the renderer on disconnect, reconnects with `Last-Event-ID`, and handles 401 as loss of device authorization. When an ordinary request returns 401 (an expired connector OAuth grant, for example), `gateway.mjs` first checks the device credential with `/connect/status` and disconnects for pairing only if that also returns 401; an older Host without that endpoint gets the original pairing prompt without disconnecting. `client-persistence.mjs` keeps the previous settings if a write fails, and renames a damaged file to `local-client-persistence.json.damaged-<time>` before continuing with empty data. |
 
 <a id="desktop-validation"></a>
 #### Version checks and tests
@@ -478,5 +526,10 @@ Every run produced the same 294 paths, sizes and SHA-256 digests. Across 34 runs
   - Background notifications rely on a foreground service; some vendor systems require allowing the app to run in the background.
   - Voice input and live calls are verified only up to the request reaching the Host; they have not been tested against a real voice service.
   - Historical checks covered an Android 15 emulator (WebView 124) and pairing, notification permission and layout on Android 16 (WebView 134). This round's Android 15 emulator paired, read existing history and received two real model replies, but duplicate text was persisted. The full conversation flow after the fix remains unverified. The attachment check reached the system picker, not a completed upload. No physical Android device result is available.
+- Web client:
+  - Only the Bot's computer on the Host; it cannot operate the device the browser runs on. No Tailcat.
+  - On an http address the microphone, dictation and browser notifications are unavailable. There are no notifications once the page is closed.
+  - The browser tests use Playwright's emulated device sizes on three browser engines, plus uploading, LAN sign-in, a real model conversation and the computer view on one real server. Browsers on physical iPhones, iPads and Android devices have not been tested.
+- The selectors of `android/tests/browser-flows.py` (the Android shell's browser test) match only the 0.71.2 interface; the 1.1.0 interface needs its own adaptation.
 - The original desktop is amd64 only. Full deployment and performance with the Host and emulated desktop on the same A1 have not been verified.
 - iOS needs your own decrypted IPA and signing certificate. Headphones, Bluetooth and network switching have not been fully tested on real devices.

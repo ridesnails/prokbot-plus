@@ -340,7 +340,7 @@ export async function* responsesTurn(context) {
       if (entry.text) content.push({ type: 'text', text: entry.text, ...(entry.phase ? { providerOptions: { grokbot: { phase: entry.phase } } } : {}) });
     } else if (entry.type === 'function_call') {
       if (!entry.callId || !validFunctionName(entry.name)) throw new ModelRequestError('Model response included an invalid function name');
-      const call = { type: 'tool-call', toolCallId: entry.callId, toolName: entry.name, args: parseToolArguments(entry.name, entry.arguments) };
+      const call = { type: 'tool-call', toolCallId: entry.callId, toolName: entry.name, args: parseToolArguments(entry.name, entry.arguments, tools) };
       // Output order is kept: each reasoning item must precede the output it led to on replay.
       calls.push(call); content.push(call);
     }

@@ -1,0 +1,143 @@
+# ProkBot Plus web client
+
+Use the Bots on your own Host from a browser on Windows, Mac or Linux computers, Android phones, iPhones, iPads and Android tablets, without installing a client. The layout follows the screen: computers and landscape tablets get the official desktop layout, phones get the official phone layout.
+
+The web client uses the same interface as the Android client: the official desktop interface, taken from the official Windows installer that you download yourself (1.1.0 recommended, 0.71.2 when 1.1.0 does not work). You build an "interface bundle" on a computer and upload it to your own Host. The Host serves it only to browsers that have signed in with a pairing code. The project does not distribute the bundle.
+
+Deployment steps are in the [AI install guide](../docs/AI-INSTALL.en.md#client-packages). How it works is in the [architecture notes](../docs/ARCHITECTURE.en.md#web-client).
+
+[中文](README.md)
+
+<p align="center"><img src="../docs/images/web-en.png" alt="Web client in a desktop browser and on an iPhone" width="860"></p>
+
+## Usage
+
+You need:
+
+- a deployed Host whose admin page you can open (ProkBot Plus 1.5.0 or later);
+- a computer (Windows, macOS or Linux) with Node.js 22.12+ and the complete web client package (with `web/`, `android/`, `windows/` and `mac/`) or the complete repository.
+
+### 1. Build the bundle
+
+From the repository root:
+
+```sh
+node web/patchers/patch.mjs
+```
+
+The tool downloads and verifies the official `Grok_Bot_1.1.0_Setup.exe` (the same file the Windows and Android clients use) and writes `web/output/GrokBotLocal-web-1.1.0.zip`.
+
+If the 1.1.0 interface does not work for you, add `--version 0.71.2` to use the 0.71.2 interface instead, or pass a downloaded 0.71.2 installer with `--source`. The tool recognises the version by its hash.
+
+| Option | Effect |
+| --- | --- |
+| `--source <file or directory>` | Use a downloaded official installer, `app-64.7z` or an installed original directory; 1.1.0 or 0.71.2 is recognised by hash |
+| `--version <1.1.0\|0.71.2>` | Choose the interface version. Default 1.1.0 (recommended); fall back to 0.71.2 only when needed |
+| `--output <directory>` | Output directory, default `web/output/` |
+| `--force` | Overwrite existing output |
+| `--upload <Host address>` | Install the bundle on that Host after building and enable the web client; see the next step |
+| `--password-file <file>` | File with the administrator password for `--upload` |
+| `--verify-only` | Check the original, run the Windows recipe, and check the web entry and interface patches in a temporary directory, without writing files |
+
+### 2. Upload it to the Host
+
+Either:
+
+- **Admin page**: open **Web client** on the Host admin page, click **Choose a file and upload** and pick the ZIP you just built. The web client is enabled when the upload finishes.
+- **Command line**: add `--upload` when building, for example `node web/patchers/patch.mjs --upload https://bot.example.org`. The administrator password is read from the `GROKBOT_ADMIN_PASSWORD` environment variable, the file given with `--password-file`, or the terminal; it never goes on the command line.
+
+The Host checks the size and SHA-256 of every file against the bundle's own manifest. If anything does not match, nothing is installed and the previous bundle stays in place.
+
+### 3. Sign in
+
+1. On the device you want to use, open `<Host address>/web/` in a browser, for example `https://bot.example.org/web/`. The **Web client** page of the admin page shows this address with a copy button.
+2. Create a 6-character pairing code under **Devices & notifications** on the admin page and enter it. Each browser pairs separately; a code is valid for 5 minutes and works once.
+3. In the browser where the admin page is open, click **Open in this browser** at the top right of the **Web client** page instead. No pairing code is needed.
+
+The browser then remembers the device (the cookie lasts 400 days), so closing and reopening it does not sign you out. Signed-in browsers appear under **Devices & notifications** with the platform **Web client**, and each can be revoked on its own.
+
+### Add to home screen
+
+The web client can open from the home screen like an app, full screen and without an address bar:
+
+- **iPhone / iPad**: open the web client in Safari, tap **Share**, then **Add to Home Screen**;
+- **Android**: open the web client in Chrome, open the menu, then **Add to Home screen** or **Install app**;
+- **Computers**: Chrome and Edge show an **Install** button at the right of the address bar.
+
+## Features
+
+- The full official desktop interface: conversations, Bot management, skills, marketplace, library, routines and settings, in Chinese and English, with dark mode following the system.
+- **Responsive layout**:
+  - computers and landscape tablets (792 pixels wide and up) get the official desktop layout, with the sidebar beside the conversation;
+  - portrait tablets and narrower windows fold the sidebar away; it slides in from the left when needed;
+  - phones (under 600 pixels wide) get the official phone layout, as in the [Android client](../android/README.en.md#features): the home screen is the Bot list, a Bot opens a full-screen conversation, and menus and dialogs rise from the bottom;
+  - the browser's back button and back gesture go back one step at a time: first closing an open panel, then returning from a conversation to the Bot list, and only then leaving the page;
+  - when a phone keyboard opens, the message field moves up with it instead of being covered; the iPhone notch and home indicator areas are kept clear.
+- **The Bot's computer**: conversation details show the live screen of the Bot's computer. In the large view you can operate it directly with mouse, keyboard or touch.
+- Attachments: upload files from the device (large files in chunks), download files the Bot sends, view images full screen.
+- Notifications: while the page is open, new messages from Bots you are not looking at show as browser notifications; clicking one opens that Bot. The Bot on screen does not notify again.
+- The link `<Host address>/web/?agent=<Bot ID>` opens a Bot's conversation directly.
+
+## Notes and limitations
+
+- **Only the Bot's computer on the Host.** The web client cannot let a Bot operate the device you are using or run commands on it; use the Windows or Mac client for that. "Teach the Bot a task" (recording a demonstration) is not available.
+- **No Tailcat.** For access from outside, use a VPN, a tunnel or an HTTPS domain. The web client connects only to the Host that serves the page; to use another Host, open that Host's web client.
+- **Plain http works, but a few features need https.** Browsers allow the microphone, dictation and notifications only on https (or local `localhost`), so these are unavailable on an http address, and the Bot's computer screen shows a one-line "not encrypted" note (operation is unaffected). Always set up https for use over the internet.
+- **No notifications once the page is closed.** For background notifications, use the Android or iOS client, or set up Bark push on the admin page.
+- Browsers: recent versions of Chrome, Edge, Firefox and Safari. On iPhone and iPad every browser uses Safari's engine and behaves like Safari.
+- Settings and interface state are stored in the browser. In another browser, or after clearing site data, settings return to their defaults (conversations and Bots live on the Host and are unaffected). Clearing site data also clears the sign-in, so pair again.
+
+### Tested environments
+
+Before every release, Playwright drives three browser engines through the full flow at the screen sizes below: pairing, opening a conversation from a link, viewing an image, receiving a notification, sending a message, going back to the Bot list on a phone and staying signed in after a reload. Windows Chrome additionally covers signing out and opening from the admin page. Both the 1.1.0 and 0.71.2 interfaces are tested:
+
+| Environment | Browser engine | Screen |
+| --- | --- | --- |
+| Windows computer | Chromium (Chrome / Edge) | 1440×900 |
+| Windows computer | Firefox | 1280×800 |
+| Mac computer | WebKit (Safari) | 1280×800 |
+| Android phone | Chromium | Pixel 7 |
+| Android tablet | Chromium | Galaxy Tab S4 |
+| iPhone | WebKit | iPhone 15, iPhone SE |
+| iPad | WebKit | iPad Pro 11 landscape |
+
+These are emulated screen sizes on the real browser engines, not physical devices. A real Linux server was also used to verify uploading, signing in over LAN http, a conversation with a real model, a Bot operating its own computer and sending back a screenshot, and the live Bot computer screen at desktop and iPhone sizes. If something goes wrong on a real device, please [open an issue](https://github.com/ferretgeek/prokbot-plus/issues).
+
+## Security
+
+- The bundle is stored only on your Host. Visitors who have not signed in see only the sign-in page and cannot fetch any file of the bundle.
+- The sign-in credential is an HttpOnly, SameSite=Strict cookie that page scripts cannot read; on https it is also Secure. Only requests that carry the cookie and come from the same address can call the Host.
+- Each browser is a separate device that you can revoke under **Devices & notifications**. Web client devices have no desktop execution permission.
+- Sign-in is rate limited, and a pairing code expires after 5 minutes and works once.
+
+## Updating and removing
+
+- **Update the interface**: build and upload a new bundle. It replaces the old one as a whole; signed-in browsers keep their pairing and only need a reload. After upgrading ProkBot Plus, build the bundle again with the tools from the same release.
+- **Pause**: turn off **Enable the web client** on the **Web client** page. The bundle stays, and signed-in browsers cannot open the web client until you turn it back on.
+- **Delete**: click **Delete the bundle**. The web client is disabled. Signed-in browsers stay listed under **Devices & notifications**, where you can revoke them.
+
+## Troubleshooting
+
+| Symptom | What to do |
+| --- | --- |
+| `/web/` says the web client is not enabled yet | Upload a bundle on the **Web client** page of the admin page and turn on **Enable the web client** |
+| Upload says the bundle format is unsupported | The bundle was built with tools from a different release than the Host. Build it again with the package matching the Host |
+| Building reports a hash mismatch | Only unmodified official Windows x64 1.1.0 or 0.71.2 installers are supported. Leave out `--source` to let the tool download one |
+| The pairing code is rejected | Codes expire after 5 minutes and work once. Create a new one under **Devices & notifications** |
+| The page suddenly returns to sign-in | This browser was revoked under **Devices & notifications**, or its site data was cleared. Pair again |
+| Microphone, dictation or notifications do not work | The address is http. Open the web client over https |
+| The Host's domain or port changed | The sign-in only applies to the old address. Pair again on the new one |
+
+## Maintenance
+
+- `client/`: code used only in the browser. `native.js` stands in for the Android shell's native calls (sign-in, settings, downloads, notification permission); `web-shell.js` handles back navigation, the keyboard, the theme and notifications; `boot-data.js` prepares the start-up data before the interface loads; `web.css` holds browser-only styles. The rest of the bridge is shared with the Android client (`android/client/`).
+- `patchers/patch.mjs` builds the bundle. The Windows inputs, recipes and interface patches are shared with the Android client; supported versions are in `android/patchers/supported.json`. `patchers/upload.mjs` uploads from the command line.
+- Host side: `host/server/web-client.mjs` (checking, installing and serving the bundle; the sign-in cookie), `host/server/public/web-login.*` (sign-in page) and `host/server/public/web-client.js` (the admin page's **Web client**).
+- Tests:
+  - `node --test "web/tests/*.test.mjs"`: building and uploading the bundle. With `PROKBOT_WEB_TEST_SOURCE` (1.1.0) and `PROKBOT_WEB_TEST_FALLBACK_SOURCE` (0.71.2) set to official installer paths, it also builds from the real installers and checks the result;
+  - `node --test host/tests/web-client.test.mjs`: the Host side;
+  - `python web/tests/browser-flows.py <bundle>`: the browser matrix above. Run `npm ci --prefix host/server` first and install Playwright (`pip install playwright`, then `playwright install chromium firefox webkit`).
+
+## License and support
+
+Non-commercial use only; see [LICENSE](../LICENSE). Most of this project's code was written with AI assistance. A generated bundle contains the official program's interface: install it only on your own Host and do not share it publicly.

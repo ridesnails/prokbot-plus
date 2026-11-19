@@ -8,7 +8,7 @@ The complete deployment steps are in the [AI deployment guide](../docs/AI-INSTAL
 
 ## Use
 
-The recommended input is the unmodified [Windows x64 **1.1.0** installer](patchers/desktop/supported.json), the release the official stable channel reported on November 14, 2026. If 1.1.0 does not work for you, [fall back to 0.71.2](#falling-back-to-0712). Other versions and modified installers are rejected during input verification, before pairing. ProkBot Plus release numbers are unrelated to Grok Bot versions. The original installer is only an input: you don't run it, and your installed official app is not affected.
+The recommended input is the unmodified [Windows x64 **1.1.0** installer](patchers/desktop/supported.json), the release the official stable channel reported on November 14, 2026. If 1.1.0 does not work for you, [fall back to 0.71.2](#falling-back-to-0712). The official site now offers the newer 1.2.3 (checked November 19, 2026), which this project does not support yet, so don't use it; without `--source` the tool downloads 1.1.0 for you. Other versions and modified installers are rejected during input verification, before pairing. ProkBot Plus release numbers are unrelated to Grok Bot versions. The original installer is only an input: you don't run it, and your installed official app is not affected.
 
 From the repository root:
 

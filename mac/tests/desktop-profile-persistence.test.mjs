@@ -11,17 +11,31 @@ async function fixture(t) {
   return { profile, file: path.join(profile, 'local-client-persistence.json') };
 }
 
-test('a corrupt desktop profile is never replaced by a write, removal, or migration', async t => {
+test('a damaged desktop profile is kept under another name and the client continues with empty data', async t => {
   const { profile, file } = await fixture(t);
-  for (const original of ['{"saved":', '[]', 'null']) {
+  t.mock.method(console, 'warn', () => {});
+  for (const original of ['{"saved":', '[]', 'null', '']) {
     await writeFile(file, original);
     const call = await createLocalServices(profile, {}, {});
-    await assert.rejects(call('writeClientPersistence', { key: 'new', value: '1' }), /profile|设置/i);
-    await assert.rejects(call('removeClientPersistence', { key: 'old' }), /profile|设置/i);
-    await assert.rejects(call('migrateClientPersistence', { entries: [] }), /profile|设置/i);
-    assert.equal(await readFile(file, 'utf8'), original);
-    assert.deepEqual(await readdir(profile), [path.basename(file)]);
+    assert.equal(await call('readClientPersistence', { key: 'saved' }), null);
+    await call('writeClientPersistence', { key: 'new', value: '1' });
+    assert.equal(await call('readClientPersistence', { key: 'new' }), '1');
+    const kept = (await readdir(profile)).filter(name => name.startsWith(`${path.basename(file)}.damaged-`));
+    assert.equal(kept.length, 1);
+    assert.equal(await readFile(path.join(profile, kept[0]), 'utf8'), original);
+    assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { new: '1' });
+    await rm(path.join(profile, kept[0]));
   }
+});
+
+test('a profile that cannot be read is preserved and reported, not replaced', async t => {
+  const { profile, file } = await fixture(t);
+  await mkdir(file);
+  const call = await createLocalServices(profile, {}, {});
+  await assert.rejects(call('writeClientPersistence', { key: 'new', value: '1' }), /profile|设置/i);
+  await assert.rejects(call('readClientPersistence', { key: 'new' }), /profile|设置/i);
+  assert.deepEqual(await readdir(profile), [path.basename(file)]);
+  assert.deepEqual(await readdir(file), []);
 });
 
 test('a failed profile save is not visible in memory or on a later successful save', async t => {

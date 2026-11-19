@@ -159,15 +159,15 @@ export async function* chatTurn(context) {
   if (finishReason === 'length' || finishReason === 'content_filter') {
     throw new ModelRequestError(`Model response stopped with ${finishReason}`, { code: finishReason });
   }
-  if (!receivedChoice || !receivedDone || !finishReason) throw new ModelRequestError('Model SSE stream ended before a completion marker');
-  if (!['stop', 'tool_calls'].includes(finishReason)) throw new ModelRequestError(`Unsupported model finish reason: ${finishReason}`);
-  if ((finishReason === 'tool_calls') !== Boolean(toolCalls.size)) throw new ModelRequestError('Model tool calls do not match the finish reason');
+  // Compatible endpoints differ: some omit [DONE], some omit finish_reason, and some report "stop"
+  // after tool calls. Either marker completes the stream; the tool calls received are used as sent.
+  if (!receivedChoice || (!receivedDone && !finishReason)) throw new ModelRequestError('Model SSE stream ended before a completion marker');
   const content = [];
   if (reasoning) content.push({ type: 'reasoning', text: reasoning, ...options() });
   if (text) content.push({ type: 'text', text });
   const calls = [...toolCalls.entries()].sort(([a], [b]) => a - b).map(([, call]) => {
     if (!call.id || !validFunctionName(call.name)) throw new ModelRequestError('Model response included an invalid function name');
-    return { type: 'tool-call', toolCallId: call.id, toolName: call.name, args: parseToolArguments(call.name, call.arguments) };
+    return { type: 'tool-call', toolCallId: call.id, toolName: call.name, args: parseToolArguments(call.name, call.arguments, tools) };
   });
   yield* streamToolCalls(calls, messages, signal);
   content.push(...calls);

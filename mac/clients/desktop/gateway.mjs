@@ -9,7 +9,23 @@ export function createGateway(config, onUnauthorized, onConnected, onStateChange
   let state = 'connecting';
   const updateState = value => { if (state !== value) { state = value; onStateChanged?.(value); } };
   const close = () => { lifetime.abort(); updateState('disconnected'); };
-  const unauthorized = () => { if (!lifetime.signal.aborted) { close(); onUnauthorized?.(); } };
+  const revoked = () => { if (!lifetime.signal.aborted) { close(); onUnauthorized?.(); } };
+  // Connectors and other Host features also answer 401 (an expired OAuth grant, for example), so a
+  // failed request ends the session only when the Host rejects the device itself. A Host without
+  // /connect/status gets the original prompt to pair again, without closing the gateway.
+  let checking;
+  const deviceStatus = () => checking ??= fetch(`${config.server}/connect/status`, {
+    headers: { Authorization: `Bearer ${config.token}` }, redirect: 'error',
+    signal: AbortSignal.any([lifetime.signal, AbortSignal.timeout(15000)]),
+  }).then(response => { void response.body?.cancel().catch(() => {}); return response.status; }, () => 0)
+    .finally(() => { checking = undefined; });
+  async function unauthorized() {
+    if (lifetime.signal.aborted) return;
+    const status = await deviceStatus();
+    if (lifetime.signal.aborted) return;
+    if (status === 401) revoked();
+    else if (status === 404) onUnauthorized?.();
+  }
   async function request(endpoint, args, signal, method = 'POST') {
     if (lifetime.signal.aborted) throw new Error(grokText('已退出连接，请重新连接。', 'Disconnected. Connect again.'));
     const active = signal ? AbortSignal.any([signal, lifetime.signal]) : lifetime.signal;
@@ -21,7 +37,7 @@ export function createGateway(config, onUnauthorized, onConnected, onStateChange
     active.throwIfAborted(); // A late 401 for a closed port is not a revocation of its live siblings.
     if (process.env.GROKBOT_LOCAL_DEBUG_PORT) console.log('[gateway]', endpoint, response.status);
     if (!response.ok) {
-      if (response.status === 401) unauthorized();
+      if (response.status === 401) await unauthorized();
       const value = await response.json().catch(() => null);
       throw Object.assign(new Error(value?.message ?? value?.error ?? `HTTP ${response.status}`),
         { httpStatus: response.status, failureCode: value?.failureCode });
@@ -74,7 +90,8 @@ export function createGateway(config, onUnauthorized, onConnected, onStateChange
             emit('coordinator-transport-state', { state: 'down' });
             emit('transport-down', { generation, reason: 'stream-error', cause: null });
           },
-          onUnauthorized: unauthorized,
+          // The event stream answers 401 only for the device credential.
+          onUnauthorized: revoked,
         });
       } else if (frame.kind === 'lifecycle' && frame.phase === 'shutdown') {
         dispose();

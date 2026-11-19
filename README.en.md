@@ -4,15 +4,16 @@
 
 **Run Grok Bot on your own server, with the models you choose.**
 
-Windows · macOS · iOS client patches ｜ [Our own Android app (unofficial)](#android-client) ｜ Server on x86_64 and ARM64 Linux ｜ OpenAI Chat, OpenAI Responses and Anthropic Messages APIs
+Windows · macOS · iOS client patches ｜ [Our own Android app (unofficial)](#android-client) ｜ [Web client: use it in any phone, tablet or computer browser](#web-client) ｜ Server on x86_64 and ARM64 Linux ｜ OpenAI Chat, OpenAI Responses and Anthropic Messages APIs
 
 <p>
 <!-- client-badges:start -->
-  <a href="#client-versions"><img alt="Windows official 1.1.0 x64" src="https://img.shields.io/badge/Windows%20official-1.1.0%20x64-0078D4?logo=windows&logoColor=white"></a>
+  <a href="#client-versions"><img alt="Windows official 1.2.3 x64 (not supported by this patch)" src="https://img.shields.io/badge/Windows%20official-1.2.3%20x64%20(not%20supported%20by%20this%20patch)-0078D4?logo=windows&logoColor=white"></a>
   <a href="#client-versions"><img alt="Windows patch accepts 1.1.0 x64 (recommended), 0.71.2" src="https://img.shields.io/badge/Windows%20patch%20accepts-1.1.0%20x64%20(recommended)%2C%200.71.2-237E55?logo=windows&logoColor=white"></a>
-  <a href="#client-versions"><img alt="macOS official 1.1.0 ARM64" src="https://img.shields.io/badge/macOS%20official-1.1.0%20ARM64-111111?logo=apple&logoColor=white"></a>
-  <a href="#client-versions"><img alt="iOS official 1.25.0" src="https://img.shields.io/badge/iOS%20official-1.25.0-111111?logo=apple&logoColor=white"></a>
+  <a href="#client-versions"><img alt="macOS official 1.2.3 ARM64" src="https://img.shields.io/badge/macOS%20official-1.2.3%20ARM64-111111?logo=apple&logoColor=white"></a>
+  <a href="#client-versions"><img alt="iOS official 1.26.0" src="https://img.shields.io/badge/iOS%20official-1.26.0-111111?logo=apple&logoColor=white"></a>
   <a href="#client-versions"><img alt="Android shell 1.1.0" src="https://img.shields.io/badge/Unofficial%20Android-1.1.0-237E55?logo=android&logoColor=white"></a>
+  <a href="#client-versions"><img alt="Web client 1.1.0" src="https://img.shields.io/badge/Web%20client-1.1.0-237E55?logo=googlechrome&logoColor=white"></a>
 <!-- client-badges:end -->
   <img alt="Host d0a4baa" src="https://img.shields.io/badge/Host-d0a4baa-2496ED?logo=docker&logoColor=white">
   <img alt="Noncommercial License" src="https://img.shields.io/badge/License-Noncommercial-6B7280">
@@ -34,7 +35,7 @@ Grok Bot is xAI's AI assistant app, with clients for Windows, Mac, iPhone and mo
 
 The open-source project [ProkBot](https://gitee.com/ahaduoduoduo/ProkBot) moves the server side (the Host and the Bot's Linux computer) onto your own server with Docker, then patches the original apps so they connect to your server. **ProkBot Plus** builds on it:
 
-- Adds a **Windows client** and **our own Android app**;
+- Adds a **Windows client**, **our own Android app** and a **web client** (open it in a browser, no client to install);
 - Adds two model APIs, **Anthropic Messages** and **OpenAI Responses** (upstream supports only OpenAI Chat);
 - Fixes problems found in real use with web search, image generation, message order and local commands;
 - Provides one tool for deployment, backup and upgrades, plus a deployment guide an AI can follow.
@@ -50,6 +51,7 @@ The open-source project [ProkBot](https://gitee.com/ahaduoduoduo/ProkBot) moves 
 - **Web access and images.** Search and read web pages with the model's built-in web tools. Generate images with an OpenAI-compatible image API, in a set aspect ratio or from a reference image.
 - **Your data stays with you.** Chats, files, memory and Bot data are stored on your server. Telemetry and automatic updates are turned off.
 - **Works on your phone.** On iPhone and Android you can chat, get notifications and watch the Bot's computer.
+- **Works in a browser.** Open the web client in a browser on Android, iPhone, iPad, Windows or Mac, with nothing to install. The layout follows the screen: on a phone the Bot list and the conversation are separate screens; on a tablet or computer you get the desktop layout with a sidebar.
 - **Works when you're out.** Direct LAN connection, built-in Tailcat networking (no public IP needed), or your own HTTPS domain.
 
 <a id="what-you-need-to-deploy"></a>
@@ -86,7 +88,7 @@ See the [AI deployment guide](docs/AI-INSTALL.en.md#choose-a-deployment) for the
 | Required | Notes |
 | --- | --- |
 | A model API | Any one of three formats: Anthropic Messages, OpenAI Responses, OpenAI Chat Completions. The model must support tool calls; for the Bot to operate a computer, it must also accept images. |
-| A computer to build the clients | Needs Node.js 22.12+. Build the Windows client on Windows 10/11 x64 and the Mac client on an Apple Silicon Mac; the Android client builds on Windows, Mac or Linux. iPhone needs a decrypted IPA and a signing certificate. |
+| A computer to build the clients | Needs Node.js 22.12+. Build the Windows client on Windows 10/11 x64 and the Mac client on an Apple Silicon Mac; the Android client and the web client build on Windows, Mac or Linux. iPhone needs a decrypted IPA and a signing certificate. |
 | The official installers | The patches only modify official originals you download yourself; see the [client version table](#client-versions) below for the versions. This project does not distribute official programs. |
 
 | Optional | Used for |
@@ -101,14 +103,15 @@ See the [AI deployment guide](docs/AI-INSTALL.en.md#choose-a-deployment) for the
 
 <a id="client-versions"></a>
 <!-- client-versions:start -->
-**Which official version should I download?** The one in the right column; the patches accept only those versions. Where two versions are listed, use the recommended newer one first and switch to the older one only if it does not work. The left column is the latest official release (checked 2026-11-14); when it is newer, wait until this project supports it.
+**Which official version should I download?** The one in the right column; the patches accept only those versions. Where two versions are listed, use the recommended newer one first and switch to the older one only if it does not work. The left column is the latest official release (checked 2026-11-19); when it is newer, wait until this project supports it.
 
 | Platform | Latest official | Version this project needs |
 | --- | --- | --- |
-| Windows x64 | [1.1.0](https://api2.cursor.sh/updates/api/download/stable/win32-x64-user/sand) | **1.1.0** (recommended); 0.71.2 if it does not work |
-| macOS ARM64 | [1.1.0](https://api2.cursor.sh/updates/api/download/stable/darwin-arm64/sand) | 0.71.2 (not yet adapted to 1.1.0; not tested on a Mac) |
-| iOS | [1.25.0](https://apps.apple.com/us/app/grok-bot/id6794501026) | 1.16.0 (build 23152; not tested on an iPhone or iPad) |
+| Windows x64 | [1.2.3](https://api2.cursor.sh/updates/api/download/stable/win32-x64-user/sand) (not supported by this patch) | **1.1.0** (recommended); 0.71.2 if it does not work |
+| macOS ARM64 | [1.2.3](https://api2.cursor.sh/updates/api/download/stable/darwin-arm64/sand) | 0.71.2 (not yet adapted to 1.2.3; not tested on a Mac) |
+| iOS | [1.26.0](https://apps.apple.com/us/app/grok-bot/id6794501026) | 1.16.0 (build 23152; not tested on an iPhone or iPad) |
 | Android 9+ (unofficial) | Does not use the official Android app | App **1.1.0** (build 10100), interface taken from the Windows **1.1.0** installer (recommended; 0.71.2 if it does not work) |
+| Web client (browser, unofficial) | Nothing to install | Interface taken from the Windows **1.1.0** installer (recommended; 0.71.2 if it does not work), built once and uploaded to your Host |
 | Linux server | n/a | Host `d0a4baa`; Bot computer `9d2ac1b` (x86_64) |
 
 ProkBot Plus has its own version numbers; see the [latest release](https://github.com/ferretgeek/prokbot-plus/releases/latest). The upstream ProkBot baseline is `3e9fe8c`.
@@ -118,6 +121,7 @@ ProkBot Plus has its own version numbers; see the [latest release](https://githu
 | --- | --- | --- |
 | Windows | Windows 10 / 11 x64 | New in Plus. Tested on Windows 11: pairing, multi-turn chat, attachments, search, local commands, notifications and reading history back after a restart; the 0.71.2 fallback was also tested for pairing and chat. Comes as a portable version and an installer; no administrator rights needed. |
 | Android | Android 9+, system WebView 89+ (111+ recommended) | Our own app, not the official Android app. Tested on Android 15 / 16 emulators: pairing, multi-turn real chats, reading history back and the notification permission. The 1.1.0 interface was also tested for the Bot computer view, images, search, dark mode and an older WebView. Not yet tested on a real phone. |
+| Web client | Current Chrome, Edge, Firefox or Safari (phone, tablet or computer) | New in Plus. Tested on a real server over a LAN http address: sign-in, real model chats, the Bot using its computer and sending back a screenshot, the live view of the Bot's computer (in a desktop browser and on iPhone) and uploading from the admin page. Sign-in, chat, images, notifications and the back button are also tested automatically (sign-out on Windows Chrome) at 8 device sizes (Windows Chrome / Firefox, Mac Safari, Android phone and tablet, iPhone, small iPhone, iPad) with both the 1.1.0 and 0.71.2 interfaces. Not tested in browsers on real devices. |
 | Mac | Apple Silicon | Patch from upstream, still on the official 0.71.2: the Mac app is a separate package, so moving to 1.1.0 needs its own patch and testing on a Mac, which the maintainers don't have. The code shared with Windows is tested; this project has not tested it on a real Mac. |
 | iPhone / iPad | Your own decrypted IPA and signing certificate | Patch from upstream. The patch tool is tested; this project has not tested it on an iPhone or iPad. |
 | Linux desktop | — | No patch from this project. The official [Linux client](https://docs.x.ai/grok-bot/deployment) exists, but it is not the same thing as the Bot's Linux computer on the server. |
@@ -136,7 +140,7 @@ The AI first lists what you need to prepare, then deploys the server, configures
 
 To do it yourself, follow the [AI deployment guide](docs/AI-INSTALL.en.md). It is written for AI, but every step has the commands and how to check them, so a person can follow it too. On the server the flow is `doctor` (check the environment) → `init` (create the configuration) → `up` (build and start) → `status` (show the state); then set up the model and create a pairing code on the admin page, and connect with a client.
 
-Downloads: the [latest release](https://github.com/ferretgeek/prokbot-plus/releases/latest) has five tool packages, for Host, Windows, Mac, iOS and Android, plus a `SHA256SUMS.txt` checksum file. Download the one you need. The packages contain no official programs and no patched clients; you build the clients on your own computer with the tools.
+Downloads: the [latest release](https://github.com/ferretgeek/prokbot-plus/releases/latest) has six tool packages, for Host, Windows, Mac, iOS, Android and the web client, plus a `SHA256SUMS.txt` checksum file. Download the one you need. The packages contain no official programs and no patched clients; you build the clients on your own computer with the tools.
 
 ## What Plus adds over upstream
 
@@ -179,6 +183,27 @@ The official Android app has tamper protection and can't be modified. Plus takes
 - On phones with an older system WebView (such as Huawei HarmonyOS with the "Zhuoyitong" Android layer), compatibility code is added automatically. If the WebView is too old even for that, the app tells you what to update instead of showing a blank screen.
 
 The APK is signed with a key that is yours alone, and later upgrades must use the same key. The Android app doesn't support Tailcat; from outside, use a VPN, a tunnel or an HTTPS domain. See [client installation](docs/AI-INSTALL.en.md#client-packages) for how to build it.
+
+<a id="web-client"></a>
+### Web client
+
+**Don't want to install a client, or using someone else's computer, a work laptop or an iPad? Open a browser.** Your own Host serves the web client. It uses only the Bot's computer on the Host and never operates the device you're on.
+
+<p align="center">
+  <img src="docs/images/web-en.png" alt="The web client: on the left, the desktop layout in a computer browser with the Bot list in a sidebar; on the right, the phone layout in an iPhone browser showing just the conversation" width="880">
+</p>
+<p align="center"><sub>The same page on a computer and on a phone (demo data).</sub></p>
+
+- **Same interface as the Android app:** the original desktop interface (taken from the official Windows installer you download yourself: 1.1.0 recommended, 0.71.2 if it does not work) with this project's browser layer. Conversations, attachments, images, Bot management, skills, the library, routines and settings all work;
+- **Responsive layout:** on a phone the Bot list and the conversation are separate screens, and the browser's back button or swipe goes from a conversation back to the list and closes dialogs; on a tablet or computer you get the desktop layout with a sidebar; the on-screen keyboard doesn't cover the message field; dark mode is supported;
+- **The Bot's computer:** watch it live in the browser, and operate it after "Take control";
+- **Notifications:** while the page is open, new messages from other Bots show as browser notifications. A closed page gets nothing; for background push use a phone app or Bark;
+- **Add it to your home screen:** in Safari on iPhone or iPad use Share → Add to Home Screen, and in Chrome on Android use Add to Home screen from the menu. It then opens full screen like an app;
+- **Security:** sign in with a 6-character pairing code from Devices & Notifications. Each browser is listed as its own device and can be revoked at any time. The interface files go only to signed-in browsers; visitors who have not signed in get nothing.
+
+To set it up: run `node web/patchers/patch.mjs` on a computer to build the bundle (it downloads and verifies the official installer), upload it under Web client on the admin page (the first upload turns it on), then open `http://your-host:18080/web/` in a browser on any device and enter a pairing code. See the [web client guide](web/README.en.md).
+
+> An http address is fine on your LAN. **Set up HTTPS for access from the internet**: over http, browsers turn off voice input, the microphone and notifications, and the sign-in credential travels unencrypted.
 
 ### Three model APIs and Bot routes
 
@@ -228,7 +253,7 @@ See the [CHANGELOG](CHANGELOG.md) and the [technical documentation](docs/ARCHITE
 **Trade-offs**
 
 - You need a Linux server and have to do upgrades and backups yourself.
-- Versions are pinned: Windows client 1.1.0, Mac client and Android interface 0.71.2, iOS 1.16.0. When the official apps update, you have to wait for this project to support them before upgrading; there are no automatic updates.
+- Versions are pinned: the Windows client and the Android and web interfaces use 1.1.0 (0.71.2 as a fallback), the Mac client 0.71.2 and iOS 1.16.0. When the official apps update, you have to wait for this project to support them before upgrading; there are no automatic updates.
 - Results depend on the model you choose. The official service is tuned for its own models, so other models may feel different.
 - Some official features are turned off or replaced: virtual cards, external message drafts, product feedback and passkey forwarding are off; voice, push and image/video generation need providers you set up yourself; real-time voice calls are experimental.
 - The clients are not code-signed: Windows shows a SmartScreen warning on first launch, on iPhone you sign and install the app yourself, and on Android you allow installing apps from unknown sources.
@@ -240,7 +265,8 @@ See the [CHANGELOG](CHANGELOG.md) and the [technical documentation](docs/ARCHITE
 | Document | Contents |
 | --- | --- |
 | [AI deployment guide](docs/AI-INSTALL.en.md) | Complete steps for deploying from scratch; every step says what you should see and what to do if it fails |
-| [Client installation](docs/AI-INSTALL.en.md#client-packages) | How to build and install the Windows, Mac, iPhone and Android clients |
+| [Client installation](docs/AI-INSTALL.en.md#client-packages) | How to build and install the Windows, Mac, iPhone and Android clients and the web client |
+| [Web client guide](web/README.en.md) | How to build, upload and sign in to the web client, which browsers it supports and how it differs from the apps |
 | [Split deployment](docs/AI-INSTALL.en.md#split-host), [backup and restore](docs/AI-INSTALL.en.md#volume-recovery) | Advanced deployment and moving data |
 | [Technical documentation](docs/ARCHITECTURE.en.md) | How it works, how each feature is implemented, what Plus changed, the layout, tests, extending it and known limitations |
 | [Maintainer handoff](docs/HANDOFF.en.md) | For maintainers: released versions, where to make changes, how to test and how to release |
@@ -256,7 +282,7 @@ See the [CHANGELOG](CHANGELOG.md) and the [technical documentation](docs/ARCHITE
   - You may use, study, modify and distribute it for personal and noncommercial purposes;
   - You may not use it for any commercial purpose, including paid deployments, paid services and internal use in a company;
   - See [NOTICE](NOTICE) for the source and the list of changes.
-- The repository contains no official Grok Bot programs, and no finished client APKs or IPAs are provided. `android/dist/` contains only our own empty shell; the desktop interface is extracted from the official installer you download and verify yourself.
+- The repository contains no official Grok Bot programs, and no finished client APKs, IPAs or web client bundles are provided. `android/dist/` contains only our own empty shell; the desktop interface is extracted from the official installer you download and verify yourself, and a web client bundle stays on your own Host, which serves it only to signed-in browsers.
 - Grok, Grok Bot and related trademarks belong to their respective owners. This project is not affiliated with or endorsed by them.
 - Most of the code in this project was written with AI assistance and is maintained by 6.2Astra and Opus5.5 together. It is provided as is, without any warranty.
 - To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md).

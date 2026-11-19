@@ -1,0 +1,11 @@
+/* Sign-in page of the web client; the stage and composer come from stage.css. */
+html:has(#web-login) { background: #0e0e0e; }
+.web-talk { gap: 16px; text-align: center; }
+.web-talk h1 { margin: 0; font: 600 24px/32px var(--font-sans); }
+.web-lead, .web-note, .web-device { margin: 0; color: var(--sand-text-secondary); font: 15px/22px var(--font-sans); }
+.web-note { font-size: 13px; line-height: 20px; }
+.web-form { position: relative; width: 100%; margin-top: 44px; }
+.web-paired { display: grid; gap: 16px; width: 100%; }
+.web-device { color: var(--sand-text-primary); }
+.web-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.web-actions .btn { min-width: 140px; justify-content: center; }

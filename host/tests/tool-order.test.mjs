@@ -45,6 +45,23 @@ test('a predecessor that never runs only delays the next message up to the limit
   (await awaitToolCallTurn('lost'))();
 });
 
+test('an ID reused by a concurrent response runs unordered instead of failing either turn', async () => {
+  recordToolCallOrder([{ toolCallId: 'call_0', toolName: 'SendToUser' }, { toolCallId: 'x-after', toolName: 'SendToUser' }]);
+  recordToolCallOrder([{ toolCallId: 'y-before', toolName: 'SendToUser' }, { toolCallId: 'call_0', toolName: 'SendToUser' },
+    { toolCallId: 'y-after', toolName: 'SendToUser' }]);
+  const log = [];
+  // Neither response waits on the other's call_0; each keeps its own remaining order.
+  await Promise.all([run('y-after', log, 1), run('call_0', log, 1), run('x-after', log, 1), run('y-before', log, 20)]);
+  assert.ok(log.indexOf('end y-before') < log.indexOf('start y-after'));
+  assert.ok(log.indexOf('start x-after') < log.indexOf('end y-before'), 'the first response is not held by the second');
+  recordToolCallOrder([{ toolCallId: 'call_0', toolName: 'SendToUser' }]);
+  const started = Date.now();
+  (await awaitToolCallTurn('call_0'))();
+  assert.ok(Date.now() - started < 1000);
+  assert.throws(() => recordToolCallOrder([{ toolCallId: 'twice', toolName: 'SendToUser' }, { toolCallId: 'twice', toolName: 'SendToUser' }]),
+    /repeated in one response/);
+});
+
 test('cancellation stops waiting for an earlier message', async () => {
   recordToolCallOrder([{ toolCallId: 'first', toolName: 'SendToUser' }, { toolCallId: 'second', toolName: 'SendToUser' }]);
   const controller = new AbortController();

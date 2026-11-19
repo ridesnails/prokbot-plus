@@ -54,14 +54,15 @@ test('unclaimed ordering entries expire during an idle period without another mo
   assert.equal(atExpiry, true, 'an expired predecessor must not start a fresh wait');
 });
 
-test('a concurrent response cannot replace a live ordered call with the same ID', async () => {
-  const first = ['before-shared', 'live-shared'];
-  recordToolCallOrder(first.map(call));
-  try {
-    assert.throws(() => recordToolCallOrder(['new-head', 'live-shared'].map(call)), /already.*tool|tool.*already/i);
-  } finally {
-    for (const id of ['before-shared', 'new-head', 'live-shared']) (await awaitToolCallTurn(id))();
-  }
+test('a concurrent response cannot take over a live ordered call ID, and neither turn fails', async () => {
+  recordToolCallOrder(['before-shared', 'live-shared'].map(call));
+  recordToolCallOrder(['new-head', 'live-shared'].map(call));
+  // The ambiguous ID waits on neither head: the first response's predecessor is still running.
+  const releaseHead = await awaitToolCallTurn('before-shared');
+  const started = Date.now();
+  (await awaitToolCallTurn('live-shared', undefined, { maxWaitMs: 5000 }))();
+  assert.ok(Date.now() - started < 1000);
+  releaseHead(); (await awaitToolCallTurn('new-head'))();
   recordToolCallOrder([call('live-shared')]);
   (await awaitToolCallTurn('live-shared'))();
 });

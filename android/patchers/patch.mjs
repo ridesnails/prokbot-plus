@@ -125,14 +125,15 @@ export async function stageAndroidArchive(asar, archive, unpacked, recipes, veri
 }
 
 // Build and verify replay exactly the same transformations, in scratch. Only a build packages the results.
-export async function verifyStagedRenderer(dist, build, patches = rendererPatches(build.desktopVersion)) {
+// The web client (web/patchers) stages the same interface with its own entry page.
+export async function verifyStagedRenderer(dist, build, patches = rendererPatches(build.desktopVersion), indexHtml = androidIndexHtml) {
   const pinned = async (name, digest) => {
     const bytes = await readFile(path.join(dist, name));
     if (sha(bytes) !== digest) throw new Error(`${name} 与支持的版本不一致。`);
     return bytes.toString('utf8');
   };
   const index = 'renderer/index.html';
-  const patchedHtml = androidIndexHtml(await pinned(index, build.rendererIndexSha256));
+  const patchedHtml = indexHtml(await pinned(index, build.rendererIndexSha256));
   await writeFile(path.join(dist, index), patchedHtml);
   const preload = await pinned('electron-preload/preload.cjs', build.preloadSha256);
   const vncPreload = await pinned('electron-preload/preload-vnc.cjs', build.vncPreloadSha256);

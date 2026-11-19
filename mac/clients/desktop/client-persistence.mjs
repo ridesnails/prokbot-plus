@@ -8,17 +8,28 @@ export function createClientPersistence(profile) {
   let state, queue = Promise.resolve();
   async function load() {
     if (state) return state;
-    try {
-      const data = JSON.parse(await readFile(file, 'utf8'));
-      if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Expected an object');
-      state = Object.assign(Object.create(null), data);
-    } catch (cause) {
+    let text;
+    try { text = await readFile(file, 'utf8'); }
+    catch (cause) {
       if (cause.code !== 'ENOENT') throw new Error(grokText(
         '无法读取桌面设置文件 local-client-persistence.json；已保留原文件。',
         'Cannot read the desktop profile local-client-persistence.json. The original file was preserved.'), { cause });
-      state = Object.create(null);
+      return state = Object.create(null);
     }
-    return state;
+    let data;
+    try { data = JSON.parse(text); } catch { data = undefined; }
+    if (data && typeof data === 'object' && !Array.isArray(data)) return state = Object.assign(Object.create(null), data);
+    // Earlier clients did not write this file atomically, so an upgrade can find it damaged. Keep it
+    // under another name and start empty; the account and sidebar state are restored from the Host.
+    const kept = `${file}.damaged-${Date.now()}`;
+    try { await rename(file, kept); }
+    catch (cause) {
+      throw new Error(grokText(
+        '桌面设置文件 local-client-persistence.json 已损坏，且无法改名备份；已保留原文件。',
+        'The desktop profile local-client-persistence.json is damaged and could not be renamed. The original file was preserved.'), { cause });
+    }
+    console.warn(`[persistence] ${path.basename(file)} was damaged; kept as ${path.basename(kept)}`);
+    return state = Object.create(null);
   }
   function ordered(task) {
     const result = queue.then(task);

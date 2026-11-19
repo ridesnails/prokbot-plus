@@ -70,7 +70,9 @@ export function render(text, lang, data) {
     windowsBadge(zh ? 'Windows 补丁接受' : 'Windows patch accepts',accepted,'237E55'),
     badge(`macOS ${label}`,`${snap.mac.version} ARM64`,`macOS ${label} ${snap.mac.version} ARM64`,'apple','111111'),
     badge(`iOS ${label}`,snap.ios.version,`iOS ${label} ${snap.ios.version}`,'apple','111111'),
-    badge(zh ? '自开发 Android' : 'Unofficial Android',android.shell.versionName,`Android shell ${android.shell.versionName}`,'android','237E55')].join('\n');
+    badge(zh ? '自开发 Android' : 'Unofficial Android',android.shell.versionName,`Android shell ${android.shell.versionName}`,'android','237E55'),
+    // The web client builds the Android interface for browsers (web/patchers/patch.mjs).
+    badge(zh ? '网页版' : 'Web client',android.desktopVersion,`${zh ? '网页版' : 'Web client'} ${android.desktopVersion}`,'googlechrome','237E55')].join('\n');
   const table = [zh ? `**下载哪个版本的官方安装包？** 按右栏下载，补丁只认这些版本。列了两个版本时先用推荐的新版，用不了再换旧版。左栏是官方当前最新版（${snap.checkedOn} 核对），比右栏新时要等本项目适配。` :
     `**Which official version should I download?** The one in the right column; the patches accept only those versions. Where two versions are listed, use the recommended newer one first and switch to the older one only if it does not work. The left column is the latest official release (checked ${snap.checkedOn}); when it is newer, wait until this project supports it.`, '',
     zh ? '| 平台 | 官方最新版 | 本项目需要的版本 |' : '| Platform | Latest official | Version this project needs |',
@@ -80,6 +82,8 @@ export function render(text, lang, data) {
     `| iOS | [${snap.ios.version}](${official.ios}) | ${ios.version}${zh ? `（构建 ${ios.build}；未在 iPhone / iPad 上测试）` : ` (build ${ios.build}; not tested on an iPhone or iPad)`} |`,
     zh ? `| Android 9+（自开发，非官方） | 不用官方 Android 版 | App **${android.shell.versionName}**（构建 ${android.shell.versionCode}），界面取自 Windows **${android.desktopVersion}** 安装包${androidNeeds} |` :
       `| Android 9+ (unofficial) | Does not use the official Android app | App **${android.shell.versionName}** (build ${android.shell.versionCode}), interface taken from the Windows **${android.desktopVersion}** installer${androidNeeds} |`,
+    zh ? `| 网页版（浏览器，非官方） | 不用安装 | 界面取自 Windows **${android.desktopVersion}** 安装包${androidNeeds}，生成后上传到你的 Host |` :
+      `| Web client (browser, unofficial) | Nothing to install | Interface taken from the Windows **${android.desktopVersion}** installer${androidNeeds}, built once and uploaded to your Host |`,
     zh ? `| Linux 服务端 | 不适用 | Host \`${host}\`；Bot 的电脑 \`${box}\`（x86_64） |` :
       `| Linux server | n/a | Host \`${host}\`; Bot computer \`${box}\` (x86_64) |`, '',
     zh ? 'ProkBot Plus 自己的版本号见[最新发布](https://github.com/ferretgeek/prokbot-plus/releases/latest)；上游 ProkBot 基线是 `3e9fe8c`。' :

@@ -166,13 +166,17 @@ for (const format of API_FORMATS) {
   });
 
   test(`${format}: EOF before the terminal event does not publish a tool or retry`, async t => {
-    const { baseUrl, requests } = await loopback(t, res => res.end(frames([...toolEvents(format), ...ending(format).slice(0, -1)])));
+    // Chat accepts either [DONE] or a finish reason, so its truncated stream carries neither.
+    const cut = format === 'openai' ? ending(format).slice(1, -1) : ending(format).slice(0, -1);
+    const { baseUrl, requests } = await loopback(t, res => res.end(frames([...toolEvents(format), ...cut])));
     await rejectedTurn(stream(format, baseUrl), /completion marker/i);
     assert.equal(requests.length, 1);
   });
 
   test(`${format}: EOF in the final SSE frame cannot certify the turn`, async t => {
-    const wire = frames([...toolEvents(format), ...ending(format)]).slice(0, -1);
+    const [finish, usage] = ending(format);
+    const last = format === 'openai' ? [usage, finish] : ending(format);
+    const wire = frames([...toolEvents(format), ...last]).slice(0, -1);
     const { baseUrl } = await loopback(t, res => res.end(wire));
     await rejectedTurn(stream(format, baseUrl), /completion marker/i);
   });
@@ -211,11 +215,28 @@ for (const format of API_FORMATS) {
   });
 }
 
-test('Chat and Messages reject terminal delimiters with no semantic finish reason', async t => {
-  for (const format of ['openai', 'anthropic']) {
-    const { baseUrl } = await loopback(t, res => res.end(frames([...toolEvents(format), ending(format).at(-1)])));
-    await rejectedTurn(stream(format, baseUrl), /finish reason|stop reason|completion marker/i);
+test('Messages rejects a terminal delimiter with no semantic stop reason', async t => {
+  const { baseUrl } = await loopback(t, res => res.end(frames([...toolEvents('anthropic'), ending('anthropic').at(-1)])));
+  await rejectedTurn(stream('anthropic', baseUrl), /finish reason|stop reason|completion marker/i);
+});
+
+test('Chat accepts the completion markers and tool calls of lenient compatible endpoints', async t => {
+  const usage = { choices: [], usage: { prompt_tokens: 2, completion_tokens: 3 } };
+  const emptyArgs = choice({ tool_calls: [{ index: 0, id: 'bare', function: { name: 'record', arguments: '' } }] });
+  const cases = [
+    ['[DONE] without a finish reason', [...toolEvents('openai'), usage, '[DONE]'], [['one', { value: 0 }]]],
+    ['a finish reason without [DONE]', [...toolEvents('openai'), choice({}, 'tool_calls'), usage], [['one', { value: 0 }]]],
+    ['"stop" after tool calls', [...toolEvents('openai'), choice({}, 'stop'), usage, '[DONE]'], [['one', { value: 0 }]]],
+    ['an empty argument string', [emptyArgs, choice({}, 'tool_calls'), usage, '[DONE]'], [['bare', {}]]],
+  ];
+  for (const [label, events, expected] of cases) {
+    const { baseUrl } = await loopback(t, res => res.end(frames(events)));
+    const parts = await Array.fromAsync(stream('openai', baseUrl).fullStream);
+    assert.deepEqual(parts.filter(p => p.type === 'tool-call').map(p => [p.toolCallId, p.args]), expected, label);
   }
+  const { baseUrl } = await loopback(t, res => res.end(frames([choice({ content: 'Done.' }), choice({}, 'eos'), '[DONE]'])));
+  const parts = await Array.fromAsync(stream('openai', baseUrl).fullStream);
+  assert.equal(parts.filter(p => p.type === 'text-delta').map(p => p.textDelta).join(''), 'Done.', 'an unlisted finish reason');
 });
 
 test('Chat preserves in-stream provider errors and Retry-After after buffered arguments', async t => {
@@ -435,12 +456,17 @@ test('Responses rejects conflicting item identities in the final snapshot', asyn
   await rejectedTurn(stream('openai-responses', baseUrl), /conflict/i);
 });
 
-test('missing OpenAI function arguments never turn into an executable empty object', async t => {
+test('missing OpenAI function arguments become {} only for a tool that requires none', async t => {
+  const required = [{ name: 'record', parameters: { type: 'object', properties: { value: { type: 'integer' } }, required: ['value'] } }];
   for (const format of ['openai', 'openai-responses']) {
     const item = format === 'openai' ? choice({ tool_calls: [{ index: 0, id: 'missing', function: { name: 'record' } }] })
       : { type: 'response.output_item.done', output_index: 0, item: { ...functionItem('missing', 0), arguments: '' } };
     const { baseUrl } = await loopback(t, res => res.end(frames([item, ...ending(format)])));
-    await rejectedTurn(stream(format, baseUrl), /tool arguments/i);
+    const strict = createModelSession({ model: 'fixture', apiFormat: format, baseUrl })
+      .getExecutor(history).stream({}, 'fixture-turn', required);
+    await rejectedTurn(strict, /tool arguments/i);
+    const parts = await Array.fromAsync(stream(format, baseUrl).fullStream);
+    assert.deepEqual(parts.filter(p => p.type === 'tool-call').map(p => p.args), [{}], format);
   }
 });
 

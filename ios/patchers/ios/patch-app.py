@@ -119,7 +119,8 @@ def main():
     extension_profiles=json.loads(a.extension_profiles.read_text()) if a.extension_profiles else {}
     if not isinstance(extension_profiles,dict):raise ValueError('Expected extension profile mapping')
     original=plistlib.loads((a.source/'Info.plist').read_bytes());executable=original['CFBundleExecutable']
-    if original.get('CFBundleIdentifier')!='co.anysphere.sand' or original.get('CFBundleShortVersionString')!='1.16.0' or original.get('CFBundleVersion')!='23152':raise ValueError('Unsupported original app')
+    pin=json.loads((ROOT/'recipes/ios/manifest.json').read_text(encoding='utf-8'));version,build=pin['version'],pin['build']
+    if original.get('CFBundleIdentifier')!='co.anysphere.sand' or original.get('CFBundleShortVersionString')!=version or original.get('CFBundleVersion')!=build:raise ValueError(f'Unsupported original app; expected {version} ({build})')
     if a.bundle_id==original['CFBundleIdentifier']:raise ValueError('Use an independent bundle ID to preserve the installed original')
     before=sha(a.source/executable);a.output.mkdir(parents=True,mode=0o700)
     app=a.output/'Payload'/a.source.name;shutil.copytree(a.source,app,symlinks=True)

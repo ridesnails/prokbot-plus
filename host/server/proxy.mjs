@@ -129,7 +129,7 @@ export function sseRewriter(rewrite) {
 export function proxyHttp(
   request,
   response,
-  { target, path, token, rewrite, ticketCookie },
+  { target, path, token, rewrite, ticketCookie, transformHtml },
 ) {
   const transport = target.protocol === "https:" ? https : http;
   const upstream = transport.request(target, {
@@ -152,10 +152,29 @@ export function proxyHttp(
     const type = String(incoming.headers["content-type"] ?? "");
     const json = rewrite && type.includes("application/json");
     const sse = rewrite && type.includes("text/event-stream");
-    const headers = responseHeaders(incoming.headers, json || sse);
+    // A small page whose markup changes on the way, such as the web client's computer view.
+    const html = transformHtml && incoming.statusCode === 200 && type.includes("text/html");
+    const headers = responseHeaders(incoming.headers, json || sse || html);
     if (ticketCookie) headers["set-cookie"] = ticketCookie;
     if (type.includes("text/event-stream")) headers["x-accel-buffering"] = "no";
-    if (json) {
+    if (html) {
+      const chunks = [];
+      let size = 0;
+      incoming.on("data", (chunk) => {
+        size += chunk.length;
+        if (size > 4 * 1024 * 1024) {
+          incoming.destroy();
+          sendJson(response, 502, { error: "Host 响应内容过大" });
+        } else chunks.push(chunk);
+      });
+      incoming.on("end", () => {
+        if (response.headersSent || response.destroyed) return;
+        const body = Buffer.from(transformHtml(Buffer.concat(chunks).toString("utf8")));
+        response.writeHead(200, { ...headers, "content-length": body.length });
+        response.end(body);
+      });
+      incoming.on("error", () => sendJson(response, 502, { error: "Host 响应中断" }));
+    } else if (json) {
       const chunks = [];
       let size = 0;
       incoming.on("data", (chunk) => {

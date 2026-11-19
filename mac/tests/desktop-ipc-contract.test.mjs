@@ -187,10 +187,47 @@ test('baseline hello opens one event stream, forwards its payload, and a revoked
   assert.deepEqual(port.replies.filter(f => f.phase === 'ready').map(f => f.protocolVersion), [3]);
   assert.deepEqual(port.replies.filter(f => f.family === 'fixture').map(f => f.payload), [{ visible: true }]);
   assert.equal(gw.getState(), 'online');
-  port.request('unauthorized'); await turn(); port.request('after-close'); await turn();
+  port.request('unauthorized'); for (let i = 0; i < 5; i++) await turn();
+  port.request('after-close'); await turn();
   assert.equal(revoked, 1);
   assert.equal(gw.getState(), 'disconnected');
   assert.equal(port.replies.some(f => f.requestId === 'unauthorized'), false);
-  assert.deepEqual(requests.map(r => r.url), [`${config.server}/events`, `${config.server}/api/listAgents`]);
+  assert.deepEqual(requests.map(r => r.url),
+    [`${config.server}/events`, `${config.server}/api/listAgents`, `${config.server}/connect/status`]);
   assert.ok(requests.every(r => r.authenticated && r.redirect === 'error'));
+});
+
+test('a 401 from a Host feature fails only that request while the device is still accepted', async t => {
+  let revoked = 0;
+  const gw = createGateway(config, () => { revoked++; });
+  t.after(() => gw.close());
+  const urls = [];
+  t.mock.method(globalThis, 'fetch', async url => {
+    urls.push(url);
+    if (url.endsWith('/connect/status')) return Response.json({ deviceId: 'fixture' });
+    return Response.json({ error: '连接器授权已过期，请重新授权' }, { status: 401 });
+  });
+  const port = attach(gw);
+  port.request('connector'); port.request('second-connector');
+  for (let i = 0; i < 6; i++) await turn();
+  assert.equal(revoked, 0);
+  assert.notEqual(gw.getState(), 'disconnected');
+  const failures = port.replies.filter(f => f.kind === 'reply').map(f => f.outcome.failure);
+  assert.deepEqual(failures.map(f => [f.httpStatus, f.message]), [[401, '连接器授权已过期，请重新授权'], [401, '连接器授权已过期，请重新授权']]);
+  assert.equal(urls.filter(url => url.endsWith('/connect/status')).length, 1, 'concurrent 401s share one device check');
+  port.request('later'); for (let i = 0; i < 6; i++) await turn();
+  assert.equal(port.replies.filter(f => f.kind === 'reply').length, 3, 'the gateway keeps serving requests');
+});
+
+test('a Host without the device status endpoint gets the original prompt to pair again', async t => {
+  let prompted = 0;
+  const gw = createGateway(config, () => { prompted++; });
+  t.after(() => gw.close());
+  t.mock.method(globalThis, 'fetch', async url => url.endsWith('/connect/status')
+    ? new Response('not found', { status: 404 }) : Response.json({ error: 'unauthorized' }, { status: 401 }));
+  const port = attach(gw);
+  port.request('legacy'); for (let i = 0; i < 6; i++) await turn();
+  assert.equal(prompted, 1);
+  assert.notEqual(gw.getState(), 'disconnected');
+  assert.equal(port.replies.find(f => f.requestId === 'legacy')?.outcome.failure.httpStatus, 401);
 });

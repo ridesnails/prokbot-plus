@@ -20,6 +20,7 @@ flowchart LR
   Mac[Mac 客户端] --> Admin
   iOS[iOS 客户端] --> Admin
   And[Android 客户端] --> Admin
+  Web[网页版<br/>任何浏览器] --> Admin
   subgraph Host 容器
     Admin[管理服务 :8000<br/>登录 / 配对 / 配置 / 代理] --> Core[原版 Host 127.0.0.1:1340<br/>Agent / 工具 / 上下文]
     Core --> Adapter[模型适配层]
@@ -40,7 +41,7 @@ flowchart LR
 | 部署方式、升级、备份 | `host/deploy.py` → `host/release/`；容器内启动在 `host/deploy/supervisor.mjs` | 新装与带旧卷升级分别测试；Host CPU 架构和桌面 CPU 架构分别验证 |
 | 更新原版 Host 或桌面 | `host/recipes/host/manifest.json` 和同目录补丁；ARM 原生依赖锁在 `host/release/arm-runtime/` | 摘要校验、生成补丁、目标镜像、旧卷启动、实际对话和桌面 |
 | 新增服务端功能 | `host/server/` 负责管理 API、持久化与页面；`host/runtime/` 负责原版 Agent 和模型行为 | 管理页保存后，客户端对话是否真的用上设置 |
-| 更新桌面 / 手机 | Mac 与 Windows 共用 `mac/clients/desktop/`；Windows 解包器和 recipe 也是 Android 的输入；iOS 独立 | 每个平台的 `supported.json` 或 recipe 清单、签名、配对。共享代码改动要测所有使用方 |
+| 更新桌面 / 手机 | Mac 与 Windows 共用 `mac/clients/desktop/`；Windows 解包器和 recipe 也是 Android 和网页版的输入，网页版与 Android 共用桥接；iOS 独立 | 每个平台的 `supported.json` 或 recipe 清单、签名、配对。共享代码改动要测所有使用方 |
 | 增加可选能力 | 先看能否做成应用或技能：[应用开发](#app-development)；只有需要改变 Host 行为才改运行时 | 安装、授权、调用和移除；不修改官方程序或把它带进发布包 |
 
 ## 功能对照
@@ -68,7 +69,7 @@ flowchart LR
 | 🔁 实时通话 | 官方实时语音模型 | 识别和合成分别接你选的服务（实验功能） | 识别和合成服务 |
 | 🔁 图片和视频生成 | 官方服务 | OpenAI 兼容的图片接口（支持按画面比例出图和参考图修图）、WaveSpeed 等 | 供应商的 Key |
 | 🔁 联网搜索 | 官方搜索 | Claude 或 OpenAI Responses 模型自带的联网能力，或单独配置的 DeepSeek、HTTP JSON 搜索服务 | 可选 |
-| 🔁 手机推送 | 官方推送 | iOS：安装包签名带推送权限时用 APNs，否则用 Bark。Android：App 自己保持与 Host 的连接接收通知 | iOS 需要 Bark App，或 Apple 开发者账号和 APNs 密钥（.p8） |
+| 🔁 手机推送 | 官方推送 | iOS：安装包签名带推送权限时用 APNs，否则用 Bark。Android：App 自己保持与 Host 的连接接收通知。网页版：页面打开时用浏览器通知 | iOS 需要 Bark App，或 Apple 开发者账号和 APNs 密钥（.p8） |
 | 🔁 外网访问 | 直接连官方云端 | IP 地址、Tailscale、HTTPS 反向代理，或内置的 Tailcat | 视情况准备域名 |
 | ⛔ 遥测和错误上报 | 发给官方 | 已关闭 | — |
 | ⛔ 自动更新 | 官方更新 | 已关闭，补丁固定在支持的版本 | — |
@@ -131,7 +132,7 @@ flowchart LR
 | --- | --- |
 | `host/runtime/model-session.mjs` | 入口，按 `apiFormat`（`openai` / `openai-responses` / `anthropic`）分派 |
 | `host/runtime/model-routing.mjs` | 校验多服务/档案配置，解析默认或 Bot 覆盖路由及备用链 |
-| `host/runtime/openai-chat.mjs` | Chat Completions，地址后接 `/chat/completions` |
+| `host/runtime/openai-chat.mjs` | Chat Completions，地址后接 `/chat/completions`。兼容接口常见的差异照上游原来的方式宽松处理：`[DONE]` 和 `finish_reason` 有一个就算结束；`finish_reason` 是 `stop` 但带了工具调用时照常执行工具；工具参数是空字符串时，工具没有必填参数就按 `{}` 处理，有必填参数仍报错 |
 | `host/runtime/openai-responses.mjs` | Responses，地址后接 `/responses`，无状态调用 |
 | `host/runtime/anthropic-messages.mjs` | Messages，地址写根地址或 `/v1` 都可以 |
 | `host/runtime/model-common.mjs` | SSE 解析、错误归一、图片和文件转换、推理来源标记、可选参数回退 |
@@ -208,7 +209,7 @@ Bot 要在执行电脑或你的电脑上做有风险的操作时，原版会先�
 
 本项目的模型层要等整段回复结束，才把工具调用一次性交给 Harness，这样流中途出错重试时不会重复执行工具。但可靠性层 `host/runtime/reliability/tool-journal.mjs` 执行每个工具前要先把执行意图写入磁盘，几条消息同时启动时，谁先写完谁先发出。
 
-`host/runtime/reliability/tool-order.mjs`（本版本新增）记下每次回复里 `SendToUser` / `SendToAgent` 的书写顺序，让每条消息等上一条执行完再开始，其他工具照常并行；前一条始终没执行时最多等 15 秒，取消时立即停止等待。
+`host/runtime/reliability/tool-order.mjs`（本版本新增）记下每次回复里 `SendToUser` / `SendToAgent` 的书写顺序，让每条消息等上一条执行完再开始，其他工具照常并行；前一条始终没执行时最多等 15 秒，取消时立即停止等待。有的服务按序号生成调用 ID，两个同时进行的回复可能用到同一个 ID；这时这条消息不参与排序（一分钟后恢复），而不是让对话出错。
 
 如果上一步只有一个 `SendToUser` 纯文本调用、紧邻的 Host 工具回执明确成功，而下一次模型响应换了调用 ID 却只要求再发相同文本，适配层会在再次执行前以不可重试错误停止这一轮。此前已送达的消息和模型用量仍保留。这个判断不跨用户轮次，不按正文清理历史，不对附件、多工具步骤或没有成功回执的调用推断送达。
 
@@ -298,6 +299,45 @@ python host/network/build-tailcat.py --target windows-amd64 --output windows/dis
 
 **和桌面版的差异**：不支持 Tailcat；不能在手机上执行命令或操作手机（`getLocalToolPermission` 返回 `never`）；没有「教 Bot 做任务」。
 
+<a id="web-client"></a>
+### 网页版（本版本新增）
+
+网页版在浏览器里运行和 Android 客户端同一套界面与桥接。Android 外壳做的事（提供界面文件、保管设备令牌、注入电脑画面的桥接）由 Host 自己完成，外壳的原生接口由浏览器功能代替。使用说明见 [`web/README.md`](../web/README.md)。
+
+**界面包**（`web/patchers/patch.mjs`）：
+
+1. 和 Android 生成工具走同一条路：下载并校验官方 Windows 安装包，执行该版本的 Windows recipe，校验界面入口和 preload 的摘要，执行 `renderer-patches.mjs` 中该版本的界面修改。推荐 1.1.0，可回退 0.71.2，版本清单就是 `android/patchers/supported.json`。
+2. 修改界面入口：在官方模块脚本前插入 `boot-data.js`、`compat.js`、`bridge.js`、`web-shell.js`、样式和 Web App 清单；CSP 的 `frame-src` 加 `'self'`（电脑画面由 Host 自己提供），`connect-src` 加 `wss:`（https 下的实时通话）。三个锚点都必须唯一。
+3. 输出一个 ZIP，第一项 `web-bundle.json`（`grokbot-web-bundle/v1`）列出其余每个文件的大小和 SHA-256：`renderer/` 是界面；`client/` 是 `android/client/`（去掉外壳自己的连接页和 `native.js`）、`web/client/`、共用的桌面模块、包装后的官方 preload 和官方图标。
+4. 界面包含有官方界面，由用户自己生成并上传到自己的 Host，不进仓库、不进 Release。`--upload` 用 `web/patchers/upload.mjs` 登录管理 API、上传、启用后退出登录；管理员密码只从环境变量、文件或终端读取。
+
+**Host**（`host/server/web-client.mjs`，路由在 `index.mjs`）：
+
+- **安装**：管理页用 XHR PUT 上传（显示进度）。Host 按清单核对路径、大小和摘要，限制文件数、单个文件和展开后的总大小，解到当前目录旁边，再用重命名整体换入；任何一步失败都不改动原包。启动时清理中断留下的临时目录。文件带 ETag，文本类型按需 gzip。
+- **登录页**：`/web/login` 是 Host 自己的页面（`public/web-login.*`），不含官方代码。`/web/renderer/*`、`/web/client/*` 只提供给已登录的浏览器；未登录时打开界面入口会跳到登录页，其他文件返回 401。
+- **登录**：`/web/api/pair` 用配对码创建 `platform: web` 的设备，和其他客户端的配对共用频率限制；设备令牌放进 `grokbot_web` Cookie（HttpOnly、SameSite=Strict、400 天，https 下加 Secure）。同一个浏览器再次登录时，先撤销它原来的设备。管理页的「在此浏览器打开」由已登录的管理员直接创建设备，不需要配对码；已经登录的浏览器沿用原设备。
+- **设备接口**：`/api`、`/events`、`/local`、`/notifications` 等接口接受这个 Cookie，但请求必须同时带 `x-grokbot-web: 1`，并且 Origin 与 Host 相同。其他网站要发这个头需要 CORS 预检，Host 从不放行，所以 SameSite 之外还有第二道防线。Cookie 里的令牌只对应 `web` 设备，换成其他平台的令牌会被拒绝；`web` 设备没有桌面执行权限（`desktop-capabilities.mjs` 只接受 `desktop`）。撤销设备时同时吊销它的电脑画面票据、推送登记和已打开的连接。
+- **电脑画面**：iframe 直接加载 Host 的 `/vnc/desktop/`、`/vnc/fork/`，凭 Host 签发的票据 Cookie 访问。对 `web` 设备，Host 在 noVNC 页面里插入 `__grokbot-vnc-bridge.js` 和 `__grokbot-vnc-preload.js`，内容取自界面包里的 `vnc-bridge.js` 和包装后的官方 `preload-vnc.cjs`，代替 Android 网关做的注入。`webview.js` 只在 http 页面上加 `encrypt=0`，https Host 上的画面走 `wss:`。
+
+**浏览器层**（`web/client/`）代替 Android 外壳的原生部分。桥接的其余代码（`bridge.js`、`services.js`、`gateway.js`、`webview.js`、`layout.js`、`android.css`、`compat.js`）与 Android 原样共用，所以排版规则相同：600 px 以下照官方手机版，792 px 以下对话详情是全屏层，更宽时是桌面排版。
+
+- `boot-data.js`：在界面之前运行的普通脚本（ES5），准备外壳原本注入的启动数据：语言、主题、设置、`?agent=` 深链接（读取后从地址栏去掉，刷新不会再跳回去）。给 `<html>` 加 `grokbot-web`，Apple 设备再加 `grokbot-apple`；设置视口：iPhone 和 iPad 禁止缩放，避免点输入框时页面放大，Android 用 `interactive-widget=resizes-content` 让键盘缩小页面。
+- `native.js`：外壳 `/__native/*` 调用的浏览器实现。设置和界面持久化数据存在 localStorage（隐私模式下退回到只在当前页面有效）；下载用 Blob 链接；外部链接在新标签页打开；配对和退出走 `/web/api`；收到 401 回到登录页。网页版只连接提供页面的 Host，界面里填别的地址会被拒绝。
+- `web-shell.js`：
+  - 返回：在 history 里放一个占位项，浏览器的返回键和返回手势先交给桥接逐级返回（关面板、从对话回到列表），桥接不处理时才真正离开页面；
+  - 页面可见性和系统深色模式转成外壳的焦点、主题事件；
+  - 用 `visualViewport` 测量可见区域，页面固定在这个区域里，手机键盘和浏览器工具栏不会挡住输入框；
+  - 页面打开时订阅 `/notifications/events`，没在看的 Bot 用浏览器通知提醒，点击打开那个 Bot。按通知 ID 去重，sessionStorage 保留最近 50 条，刷新后不重复；页面进入往返缓存时断开，回来时重连。
+- `web.css`：浏览器专用样式，例如整页不滚动、从主屏幕打开时给状态栏和底部横条留出安全区域。
+
+**与 Android 共用代码的修改**：
+
+- `compat.js` 新增一项：Safari 的 ResizeObserver 不支持 `device-pixel-content-box`，官方界面观察图片尺寸时会抛错，整个对话变白。兼容代码在缺少该能力时改用 `content-box`，并按 `devicePixelRatio` 补出 `devicePixelContentBoxSize`。已有该能力的浏览器不受影响。
+- `bridge.js` 打开深链接或通知指向的 Bot 时，先确认 Host 的 Bot 列表里有它，再等界面列出 Bot（最多 15 秒）后聚焦。原来冷启动时聚焦事件可能早于列表到达而被丢掉，Android 的通知点击也有同样问题。
+- http 的局域网地址不是安全上下文，浏览器不提供 `crypto.randomUUID`，由 `compat.js` 原有的补齐代码处理。麦克风、语音输入和通知只在 https 或 `localhost` 下可用，noVNC 会显示未加密提示。
+
+**测试**：`host/tests/web-client.test.mjs` 测 Host 端（界面包校验、安装替换、缓存、Cookie 规则、VNC 注入、登录和管理路由）；`web/tests/web-patch.test.mjs` 测生成和上传；`web/tests/browser-flows.py` 用 Playwright 在 Chromium、Firefox、WebKit 三种内核和 8 种设备尺寸上，对 `fixture-host.mjs`（真实的 Host 管理服务加演示数据的模拟核心）跑完整流程。
+
 ### iOS 客户端
 
 原版 iOS 客户端用 React Native 开发。这里写了一个注入的动态库（Objective-C，源码在 `ios/clients/ios/`，用 `build.py` 编译），把原本发往官方的请求转到你的 Host，再对 Hermes 字节码做少量固定修改。小组件、分享和通知三个扩展保留，使用独立的 Bundle ID。补丁输出未签名的 IPA，主应用和三个扩展都要自己签名（见[客户端安装与签名](AI-INSTALL.md#client-packages)）。
@@ -341,6 +381,9 @@ Host 可以直接给 Apple 推送服务（APNs）发通知，这需要有推送�
 | `android/shell/` | Android 外壳（Kotlin）：本地网关、凭据、配对、通知、文件和返回键；`release-shell.mjs` 构建 `android/dist/grokbot-android-shell.apk` |
 | `android/client/` | WebView 里的桥接：代替 Electron 主进程和 preload、电脑画面、布局调整、锚点兼容、连接页 |
 | `android/patchers/` | Android 生成工具：`patch.mjs`、`apk.mjs`（ZIP 与 APK 签名）、`renderer-patches.mjs`、`supported.json` |
+| `web/client/` | 网页版的浏览器层：启动数据、代替外壳原生接口的 `native.js`、返回键与键盘和通知（`web-shell.js`）、浏览器样式 |
+| `web/patchers/` | 网页版界面包的生成（`patch.mjs`，与 Android 共用输入和界面补丁）和命令行上传（`upload.mjs`） |
+| `host/server/web-client.mjs` | Host 端的网页版：界面包校验、安装和提供，登录 Cookie，电脑画面桥接注入；登录页是 `host/server/public/web-login.*` |
 | `ios/release/` | iOS 补丁入口 `patch-ios.py`：校验用户 IPA，输出未签名文件 |
 | `ios/clients/ios/` | 注入库源码、原生界面与功能适配（例如 `GBNetwork.m` 的隧道管理、`GBVoiceSocket.m` 的语音传输）；`audio-processing/` 是回声处理库 |
 | `*/recipes/` | 从原版文件复制字节并加入本项目修改的补丁数据 |
@@ -372,7 +415,10 @@ node --test "host/tests/*.test.mjs"      # 服务端
 node --test "windows/tests/*.test.mjs"   # Windows 客户端
 node --test "mac/tests/*.test.mjs"       # Mac / 共用客户端
 node --test "android/tests/*.test.mjs"   # Android 客户端
+node --test "web/tests/*.test.mjs"       # 网页版
 ```
+
+Host 的网页版路由测试需要管理服务的依赖：先执行 `npm ci --prefix host/server`，否则这一项自动跳过。网页版的浏览器测试 `python web/tests/browser-flows.py <界面包>` 还需要 Playwright，见 [`web/README.md`](../web/README.md#维护)。
 
 iOS 注入库的网络层另有一项测试，要在装了 Xcode 命令行工具的 Mac 上运行：`python3 ios/tests/ios-network.test.py`。
 
@@ -386,7 +432,8 @@ iOS 注入库的网络层另有一项测试，要在装了 Xcode 命令行工具
 - **Windows 客户端**：窗口样式、安装包结构、Codex 查找、Host 图片路径、命令输出编码。
 - **Mac 客户端**：附件、外部链接、预览、侧栏等。
 - **iOS 网络层**：Tailcat 隧道的启动（并发请求只启动一次）、恢复、连接异常后的重建和关闭。
-- **Android 客户端**：APK 对齐、签名和防篡改校验，签名密钥，界面入口和界面补丁，官方 preload 的包装，Host 附件路径，电脑画面地址，事件流解析，锚点位置换算，图片缩放，手机上列表和对话两页的切换规则，列表时间的格式。
+- **Android 客户端**：APK 对齐、签名和防篡改校验，签名密钥，界面入口和界面补丁，官方 preload 的包装，Host 附件路径，电脑画面地址，事件流解析，锚点位置换算，图片缩放，手机上列表和对话两页的切换规则，列表时间的格式，Safari 的 ResizeObserver 兼容。
+- **网页版**：界面入口改写、界面包内容和清单、上传流程、固定安装包的生成；Host 端的界面包校验、安装替换、缓存、Cookie 规则、VNC 注入、登录和管理路由；浏览器测试覆盖 8 种设备尺寸的登录、深链接、看图、通知、发消息、返回和退出。
 
 改动代码后，建议再做一次真实验证：
 
@@ -405,13 +452,14 @@ iOS 注入库的网络层另有一项测试，要在装了 Xcode 命令行工具
 | 修改管理页 | `host/server/public/`，英文文案在 `locales-en.js` |
 | 修改桌面客户端 | `mac/clients/desktop/` 由 Mac 与 Windows 共用；Android 除了复制语言、外链和连接器模块，也打包 `workspace.css` 与 `workspace-keys.cjs`。三端共用表格宽度和弹窗按键逻辑 |
 | 修改 Android 客户端 | 桥接在 `android/client/`；外壳在 `android/shell/`，改完执行 `node android/shell/release-shell.mjs` 更新预编译外壳和摘要（需要 JDK 17+ 和 Android SDK） |
+| 修改网页版 | 浏览器层在 `web/client/`，Host 端在 `host/server/web-client.mjs`；桥接与 Android 共用，改 `android/client/` 要同时跑 Android 测试和网页版浏览器测试 |
 | 支持新的官方客户端版本 | Windows：要保留当前版本作为回退，先把它的输入和 recipe 移到 `windows/patchers/desktop/<版本>/`；更新 `supported.json`，按新原文件调整 `windows/tools/desktop-recipes/spec.mjs` 的锚点后运行 `build.mjs`，再按[桌面版本与兼容性](#desktop-compatibility)验收。Android 还需单独验证 WebView 桥接与 `renderer-patches.mjs`，再更新 `android/patchers/supported.json`（旧版本移进 `fallback`） |
 | 应用（插件）开发 | [应用格式与运行位置](#app-development)；完整指南随 Host 包提供 |
 
 <a id="desktop-compatibility"></a>
 ### 桌面版本与兼容性
 
-Windows x64 推荐 **1.1.0**，用不了时回退到 **0.71.2**；Android 所用的桌面界面同样推荐 1.1.0、可回退 0.71.2；Mac ARM64 仍为 **0.71.2**；Android 外壳单独编号（[版本表](../README.md#client-versions)）。2026-11-14，[Windows](https://api2.cursor.sh/updates/api/download/stable/win32-x64-user/sand) 和 [Mac](https://api2.cursor.sh/updates/api/download/stable/darwin-arm64/sand) 通道报 **1.1.0**。[固定快照](https://github.com/ferretgeek/prokbot-plus/blob/a868918f4e2f64ab6529b3afaf92dd6019235efe/ci/official-snapshot.json)中的 `build` 是构建标识，`observedArchiveSha256` 和 `observedAsarSha256` 分别是完整 EXE/DMG 和包内 ASAR 的实算摘要，不是构建白名单。当日[官方更新日志](https://x.ai/changelog/bot)只到 **1.0.1**，未列出 1.0.3、1.1.0 的功能差异。
+Windows x64 推荐 **1.1.0**，用不了时回退到 **0.71.2**；Android 所用的桌面界面同样推荐 1.1.0、可回退 0.71.2；Mac ARM64 仍为 **0.71.2**；Android 外壳单独编号（[版本表](../README.md#client-versions)）。2026-11-14，[Windows](https://api2.cursor.sh/updates/api/download/stable/win32-x64-user/sand) 和 [Mac](https://api2.cursor.sh/updates/api/download/stable/darwin-arm64/sand) 通道报 **1.1.0**。[固定快照](https://github.com/ferretgeek/prokbot-plus/blob/a868918f4e2f64ab6529b3afaf92dd6019235efe/ci/official-snapshot.json)中的 `build` 是构建标识，`observedArchiveSha256` 和 `observedAsarSha256` 分别是完整 EXE/DMG 和包内 ASAR 的实算摘要，不是构建白名单。当日[官方更新日志](https://x.ai/changelog/bot)只到 **1.0.1**，未列出 1.0.3、1.1.0 的功能差异。2026-11-19 两个通道已报 **1.2.3**，Windows 1.2.3 安装包的 Anysphere Authenticode 签名有效；本项目尚未适配 1.2.3，补丁仍只接受上述固定版本。最新观测记录在 [`ci/official-snapshot.json`](../ci/official-snapshot.json)，其中 Mac 1.2.3 只记录了整个 DMG 的摘要，没有解包测量 ASAR。
 
 1.0.3 的每个平台有 10 个旧 recipe 源路径消失，余下 6 个内容改变；两端的 preload 也都不同于 1.0.1。原包记录如下：
 
@@ -429,7 +477,7 @@ Windows 1.1.0 的 17 条 recipe 由 `windows/tools/desktop-recipes/` 从官方�
 | --- | --- |
 | Electron preload → 主进程 | `main.mjs`、`local-services.mjs` 的 RPC 探测同时检查受信窗口的主 frame、preload 的声明和已安装的可调用处理器。核对同步启动快照、调用参数、成功/失败回执及订阅/取消订阅；仅匹配方法名不足以判定兼容。 |
 | 界面 → Host 网关 | `gateway.mjs` 每个端口只回应一次 v3 `ready`；显式版本不符就关端口。进行中的请求 ID 在端口内去重，取消只作用于该请求，端口关闭后丢弃迟到回执。取消客户端请求不会撤销 Host 已执行的命令。 |
-| 配对、事件和设置 | `connection.mjs` 加密保存设备凭据，只在原 Host origin 或原 Tailcat 隧道重试，换地址须重新配对；请求拒绝重定向。`streams.mjs` 只有在 `/events` 返回 HTTP 200、响应体和 `text/event-stream` 后才报告在线；断线通知界面，重连携带 `Last-Event-ID`，401 表示设备需要重新认证。`client-persistence.mjs` 写入失败时保留原设置。 |
+| 配对、事件和设置 | `connection.mjs` 加密保存设备凭据，只在原 Host origin 或原 Tailcat 隧道重试，换地址须重新配对；请求拒绝重定向。`streams.mjs` 只有在 `/events` 返回 HTTP 200、响应体和 `text/event-stream` 后才报告在线；断线通知界面，重连携带 `Last-Event-ID`，401 表示设备需要重新认证。普通请求返回 401 时（例如连接器的 OAuth 授权过期），`gateway.mjs` 先用 `/connect/status` 核对设备凭据，只有它也返回 401 才断开并要求重新配对；没有这个接口的旧 Host 照原来的方式弹出配对窗口，不断开连接。`client-persistence.mjs` 写入失败时保留原设置；文件损坏时改名为 `local-client-persistence.json.damaged-<时间>` 后按空数据继续。 |
 
 <a id="desktop-validation"></a>
 #### 版本核对与测试
@@ -478,5 +526,10 @@ node --test windows/tools/inspect-desktop-preload.test.mjs
   - 后台通知靠一个前台服务保持连接，部分厂商系统需要允许后台运行；
   - 语音输入和实时通话只验证到请求送达 Host，还没有和真实的语音服务联调；
   - 历史测试覆盖 Android 15 模拟器（WebView 124），以及 Android 16 模拟器（WebView 134）的配对、通知权限和布局。本轮在 Android 15 模拟器完成了配对、历史读回和两轮真实模型对话，但发现同文重复；修复后完整链路仍需重验。附件操作只走到系统文件选择器，不算上传成功。没有 Android 真机结果。
+- 网页版：
+  - 只能使用 Host 上的 Bot 电脑，不能操作浏览器所在的设备；不支持 Tailcat；
+  - http 地址下麦克风、语音输入和浏览器通知不可用；页面关闭后没有通知；
+  - 浏览器测试是 Playwright 模拟的设备尺寸和三种浏览器内核，加上一台真实服务器上的上传、局域网登录、真实模型对话和电脑画面验证；没有在 iPhone、iPad、Android 真机的浏览器上测试。
+- `android/tests/browser-flows.py`（Android 外壳的浏览器测试）的选择器只匹配 0.71.2 界面，1.1.0 界面需要另行适配。
 - 原版桌面只有 amd64。单台 A1 同时运行 Host 和模拟桌面的完整部署与性能尚未验证。
 - iOS 需要自备砸壳 IPA 和签名证书；耳机、蓝牙与网络切换场景还没有在真机上充分验证。

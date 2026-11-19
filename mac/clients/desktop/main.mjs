@@ -157,6 +157,8 @@ async function showWorkspace() {
   // The Host lists unnamed desktop clients as Macs; Windows reports itself once per session.
   if (isWindows) void gateway.request('/local/device', { kind: 'desktop', clientKind: 'windows', appVersion: app.getVersion() },
     AbortSignal.timeout(15000), 'PUT').catch(() => {});
+  // Apply the saved theme (dark by default) before the first paint; createSettings applies it again.
+  if (['dark', 'light', 'system'].includes(clientSettings.theme)) nativeTheme.themeSource = clientSettings.theme;
   const background = nativeTheme.shouldUseDarkColors ? '#111111' : '#ffffff';
   const win = new BrowserWindow({ width: 1200, height: 850, minWidth: 720, minHeight: 500,
     title: 'Grok Bot', backgroundColor: background, ...windowChrome(background),

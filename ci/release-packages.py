@@ -1,4 +1,4 @@
-"""Build the five ProkBot Plus tool ZIPs, or check an existing set against Git.
+"""Build the six ProkBot Plus tool ZIPs, or check an existing set against Git.
 
 Use a clean checkout at the full commit ID and a fresh, caller-verified local
 remote-tracking ref. Reachability is offline evidence, not a live remote check.
@@ -26,7 +26,7 @@ SUMS = 'SHA256SUMS.txt'
 COMMON = ('LICENSE', 'NOTICE', 'README.md', 'README.en.md', 'CHANGELOG.md',
           'CONTRIBUTING.md', 'SECURITY.md', 'docs')
 PACKAGES = {'host': ('host',), 'windows': ('windows', 'mac'), 'mac': ('mac',),
-            'ios': ('ios',), 'android': ('android', 'windows', 'mac')}
+            'ios': ('ios',), 'android': ('android', 'windows', 'mac'), 'web': ('web', 'android', 'windows', 'mac')}
 # A faithful archive of an incomplete commit is still not a usable tool package.
 TOOLS = ('docs/AI-INSTALL.md', 'docs/AI-INSTALL.en.md', 'docs/ARCHITECTURE.md', 'docs/ARCHITECTURE.en.md',
          'host/deploy.py', 'host/release/build-docker.py', 'host/server/application-guide.md',
@@ -42,7 +42,8 @@ TOOLS = ('docs/AI-INSTALL.md', 'docs/AI-INSTALL.en.md', 'docs/ARCHITECTURE.md', 
          'mac/patchers/desktop/download-original.mjs', 'mac/patchers/desktop/package.json',
          'mac/patchers/desktop/node_modules/@electron/asar/package.json', 'mac/patchers/desktop/node_modules/@electron/asar/lib/asar.js',
          'ios/release/patch-ios.py', 'ios/recipes/ios/manifest.json', 'android/patchers/patch.mjs',
-         'android/patchers/supported.json', 'android/dist/grokbot-android-shell.apk')
+         'android/patchers/supported.json', 'android/dist/grokbot-android-shell.apk',
+         'web/patchers/patch.mjs', 'web/patchers/upload.mjs', 'web/client/native.js', 'web/client/boot-data.js')
 EXECUTABLES = ('host/bin/grokbot-tailcat', 'host/bin/linux-arm64/grokbot-tailcat',
                'mac/dist/network/grokbot-tailcat', 'ios/bin/GrokBotLocal.dylib',
                'mac/patchers/desktop/node_modules/.bin/asar', 'mac/patchers/desktop/node_modules/@electron/asar/bin/asar.mjs',
@@ -231,7 +232,7 @@ def release(repo, commit, output, *, pushed_ref='refs/remotes/origin/main', veri
         if verify_only:
             names = {p.name for p in archives.values()} | {SUMS}
             if {p.name for p in output.iterdir()} != names:
-                raise ReleaseError('expected exactly five platform ZIPs and SHA256SUMS.txt')
+                raise ReleaseError('expected exactly six platform ZIPs and SHA256SUMS.txt')
         else:
             output.mkdir(mode=0o700)  # Atomic reservation; even an existing empty directory is not ours.
             rollback.callback(remove_empty, output)
@@ -254,7 +255,7 @@ def release(repo, commit, output, *, pushed_ref='refs/remotes/origin/main', veri
         if verify_only:
             with open_artifact(policy, manifest) as src:
                 if src.read(len(sums) + 1) != sums:
-                    raise ReleaseError('SHA256SUMS.txt does not match the five reproduced ZIPs')
+                    raise ReleaseError('SHA256SUMS.txt does not match the six reproduced ZIPs')
         if helper_sums is not None:
             content_check(policy, repo, commit, sums, archives.values(), helper_sums)
         if not verify_only:
@@ -282,7 +283,7 @@ def main(argv=None):
     except (ReleaseError, OSError, UnicodeError, zipfile.BadZipFile) as exc:
         print('release-packages: ' + (str(exc) if isinstance(exc, ReleaseError) else type(exc).__name__), file=sys.stderr)
         return 1
-    print(f'{"reproduced" if args.verify_only else "built"} packages=5 commit={args.commit.lower()} '
+    print(f'{"reproduced" if args.verify_only else "built"} packages={len(PACKAGES)} commit={args.commit.lower()} '
           f'tracking_tip={tip} content_policy={"passed" if args.helper_sums else "not-run"}')
     return 0
 

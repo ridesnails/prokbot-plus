@@ -351,7 +351,7 @@ export async function mintVoiceCredential({ request }, agentId) {
       expires <= Date.now() / 1000 || expires > Date.now() / 1000 + 90)
     throw new Error(grokText('语音连接信息无效。', 'Invalid voice connection.'));
   const local = new URL('/local/voice/realtime', location.origin);
-  local.protocol = 'ws:';
+  local.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   return { clientSecret: value.clientSecret, websocketUrl: local.href, expiresAtUnixSeconds: expires, model: value.model };
 }
 
@@ -432,7 +432,11 @@ export function createServices(context) {
   };
   const timeZone = () => ({ detectedTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, overrideTimeZone: settings.timeZone ?? null });
   const hardware = () => ({ enabled: true, enabledAtLaunch: true, pdfRasterMode: 'gpu' });
-  const unavailable = () => { throw new Error(grokText('Android 客户端不支持在手机上执行命令。', 'The Android client cannot run commands on this phone.')); };
+  const unavailable = () => {
+    throw new Error(androidBoot.client === 'web'
+      ? grokText('网页版不能在这台设备上执行命令。', 'The web client cannot run commands on this device.')
+      : grokText('Android 客户端不支持在手机上执行命令。', 'The Android client cannot run commands on this phone.'));
+  };
   const known = {
     ...attachments,
     ...persistence,
