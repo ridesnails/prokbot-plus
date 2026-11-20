@@ -1,14 +1,14 @@
 # ProkBot Plus Windows Patch
 
+[简体中文](README.md)
+
 Connect Grok Bot 1.1.0 for Windows x64 to your Host. Requires Windows 10/11 x64, Node.js 22.12+ and the full repository (the client code and patch tools in `mac/` are shared).
 
-The complete deployment steps are in the [AI deployment guide](../docs/AI-INSTALL.en.md#91-windows-1011-x64), and how it works is in the [technical documentation](../docs/ARCHITECTURE.en.md#windows-client-new-in-this-version).
-
-[简体中文](README.md)
+The complete deployment steps are in the [deployment guide](../docs/AI-INSTALL.en.md#client-packages), and how it works is in the [technical documentation](../docs/ARCHITECTURE.en.md#windows-client).
 
 ## Use
 
-The recommended input is the unmodified [Windows x64 **1.1.0** installer](patchers/desktop/supported.json), the release the official stable channel reported on November 14, 2026. If 1.1.0 does not work for you, [fall back to 0.71.2](#falling-back-to-0712). The official site now offers the newer 1.2.3 (checked November 19, 2026), which this project does not support yet, so don't use it; without `--source` the tool downloads 1.1.0 for you. Other versions and modified installers are rejected during input verification, before pairing. ProkBot Plus release numbers are unrelated to Grok Bot versions. The original installer is only an input: you don't run it, and your installed official app is not affected.
+The recommended input is the unmodified [Windows x64 **1.1.0** installer](patchers/desktop/supported.json); if it does not work for you, [fall back to 0.71.2](#falling-back-to-0712). The official site now offers 1.2.3 (checked November 19, 2026), which this project does not support yet, so don't use it; without `--source` the tool downloads 1.1.0 for you. Other versions and modified installers are rejected during input verification, before pairing. ProkBot Plus release numbers are unrelated to Grok Bot versions. The original installer is only an input: you don't run it, and your installed official app is not affected.
 
 From the repository root:
 
@@ -24,7 +24,9 @@ The tool downloads and verifies the official `Grok_Bot_1.1.0_Setup.exe` and writ
 | `GrokBotLocal-1.1.0-x64-portable.zip` | Portable archive; extract and run |
 | `GrokBotLocal-1.1.0-x64-Setup.exe` | Per-user installer into `%LOCALAPPDATA%\Programs\Grok Bot Local`, no administrator rights |
 
-Open the client and enter your Host address and six-character pairing code. To use an existing original installer, `app-64.7z` or installed original folder, pass `--source`; the tool recognizes the version by its digest. `--no-installer` builds the portable outputs only.
+Open the client and enter your Host address and 6-character pairing code. To use an existing original installer, `app-64.7z` or installed original folder, pass `--source`; the tool recognizes the version by its digest. `--no-installer` builds the portable outputs only.
+
+<p align="center"><img src="../docs/images/windows-connect.png" alt="First connection in the Windows client: enter the Host address and pairing code (Chinese interface)" width="320"></p>
 
 ### Falling back to 0.71.2
 
@@ -68,8 +70,8 @@ The new files go to a sibling named `<old folder> (side-by-side)`. The setup doe
 - `patchers/desktop/0.71.2/`: the pinned inputs and recipes of the 0.71.2 fallback, shared by the Windows fallback and the Android 0.71.2 interface. The patcher recognizes a `--source` by the size and SHA-256 in `supported.json`; a further fallback release goes into a directory named after its version in the same way. `tools/port-desktop-recipes.mjs` derives these recipes from the Mac recipes of the same version and both originals, checking that every copied range keeps its structure.
 - `installer/`: installer source (Go standard library only), `go build -trimpath -ldflags="-H=windowsgui -s -w" -o ../dist/installer/grokbot-setup-stub.exe .`
 - `dist/network/grokbot-tailcat.exe`: `python host/network/build-tailcat.py --target windows-amd64 --output windows/dist/network`
-- Tests: `node --test "windows/tests/*.test.mjs"`
+- Tests: `node --test "windows/tests/*.test.mjs"`; how the recipes and installer work is in the [technical documentation](../docs/ARCHITECTURE.en.md#windows-client).
 
 ## License and support
 
-Noncommercial use only. See [LICENSE](../LICENSE). Most code in this project was generated with AI assistance.
+Noncommercial use only. See [LICENSE](../LICENSE). Most of this project's code was written with AI assistance.

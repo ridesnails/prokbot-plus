@@ -12,14 +12,14 @@
 | --- | --- | --- |
 | 一台 x86_64 Linux | 默认，Host 和执行桌面都原生运行 | 最低 2 核 4 GB，推荐 4 核 8 GB；2 核 2 GB 实测不够。见[首页的服务器要求](../README.md#server-requirements) |
 | 一台 ARM64 Linux，例如 Oracle Ampere A1 | 默认，Host 原生运行，桌面经 QEMU 模拟 amd64 | **实验**。不是原生 ARM 桌面；先通过 `doctor`，实际速度取决于任务 |
-| ARM64 Linux + 一台 amd64 Linux | 在 Host 的 `doctor`、`init` 前加 `--host-only`；桌面放第二台 | ARM 机不下载或模拟桌面。以往在 A1 原生 Host 上验证过聊天和远端桌面控制，但未在 A1 上验证 Docker 构建、Compose 升级或本轮容量 |
+| ARM64 Linux + 一台 amd64 Linux | 在 Host 的 `doctor`、`init` 前加 `--host-only`；桌面放第二台 | ARM 机不下载或模拟桌面。当前版本未在 ARM 上重新实测 |
 
 <a id="split-host"></a>
 **分机部署**：`--host-only` 只省略本机桌面，不是无桌面的聊天模式。在另一台 amd64 Linux 上部署执行节点，然后在 Host 管理页填写节点地址、密钥并启用它。模型与节点未配置好之前，管理页和健康检查可以正常，但聊天核心不会启动。节点不可达时也不能算通过验收。离线输入和节点部署的完整步骤在同版本 Host 包的 `host/README.md`。
 
-若先保存了模型，旧管理页会一直等待 Host，CLI 会在三分钟后报错。现在概览显示「需要执行节点」；点「配置节点」会打开「执行环境」的实际设置表单。CLI 在这种情况下提示模型**已保存、尚未应用**，不用重填模型。启用节点后确认 Host 已连接，再验证聊天。
+先保存了模型时，概览显示「需要执行节点」，CLI 提示模型**已保存、尚未应用**，不用重填。点「配置节点」启用节点，确认 Host 已连接后再验证聊天。
 
-开始前一次问清：新装还是升级？服务器及 SSH 访问方式？客户端从哪访问（本机、专网、HTTPS 域名）？使用哪种模型接口、模型 ID、哪些客户端？密码和 API Key 由用户在管理页输入，不要贴到聊天、工单或日志。已有服务、域名、反向代理和防火墙不默认改动。本轮候选的升级、恢复演练和容量测试只允许使用获准的专用非生产实例；不得使用生产服务、数据卷或凭据。
+开始前一次问清：新装还是升级？服务器及 SSH 访问方式？客户端从哪访问（本机、专网、HTTPS 域名）？使用哪种模型接口、模型 ID、哪些客户端？密码和 API Key 由用户在管理页输入，不要贴到聊天、工单或日志。已有服务、域名、反向代理和防火墙不默认改动。升级演练、恢复演练和容量测试只在获准的专用非生产实例上做，不使用生产服务、数据卷或凭据。
 
 服务器需 Python 3.10+、可访问的 Linux Docker daemon、`up` 同时支持 `--wait` 和 `--wait-timeout` 的 Compose，以及 Git 或解压好的 Host 包。同机部署最低 2 核、4 GB 内存、30 GB 可用磁盘，推荐 4 核、8 GB、50 GB；构建缓存和备份另占空间，依据见[首页的服务器要求](../README.md#server-requirements)。ARM 同机还需注册 x86-64 QEMU/binfmt，安装或变更前请机主确认。
 
@@ -62,7 +62,7 @@ python3 host/deploy.py status < /dev/null
 ## 模型与客户端
 
 1. 在私有终端运行 `python3 host/deploy.py setup-key`，不要把输出转发到聊天。打开管理页，用初始化码设置 12–128 位管理员密码。该码仅首次使用，与设备配对码不同。
-2. 独立桌面模式先在管理页连接执行节点。然后在「模型」里先添加每个模型服务（接口格式、地址、Key），再创建绑定服务和模型 ID 的模型档案。OpenAI Chat 和 Responses 通常填到 `/v1`，Anthropic Messages 可填根地址；按供应商实际接口选择。设置默认路由后，可为单个 Bot 覆盖主模型、思考强度和有序备用模型，不需要 Jev Key；子代理继承父 Bot 的路由。逐个测试档案后再保存，等 Host 显示已连接。主模型尚未输出文字或工具调用时，402、408、429、5xx、网络错误和 Host 上游 I/O 空闲超时（默认 300 秒）可依次尝试备用；同一 Key 仅在明确额度耗尽时跳过，普通 503、超时和网络错误仍可切换。Harness 自己还有 150 秒首字停滞超时，多数首字停滞会先由它结束本轮；调用方取消或超时不触发 Host 备用请求。联网、生图、语音、推送按需配置，不是首次聊天的前提。
+2. 独立桌面模式先在管理页连接执行节点。然后在「模型」里先添加每个模型服务（接口格式、地址、Key），再创建绑定服务和模型 ID 的模型档案。OpenAI Chat 和 Responses 通常填到 `/v1`，Anthropic Messages 可填根地址；按供应商实际接口选择。设置默认路由后，可为单个 Bot 覆盖主模型、思考强度和有序备用模型（切换规则见[技术文档](ARCHITECTURE.md#模型适配层)），不需要 Jev Key。逐个测试档案后再保存，等 Host 显示已连接。联网、生图、语音、推送按需配置，不是首次聊天的前提。
 3. 管理页生成一次性六位配对码（5 分钟有效）。客户端输入与 `GROKBOT_PUBLIC_URL` 相同的地址和配对码。每台设备单独配对。Android 和网页版不支持 Tailcat 链接，请用专网地址或 HTTPS。
 
 <a id="client-packages"></a>
@@ -71,7 +71,7 @@ python3 host/deploy.py status < /dev/null
 | 客户端 | 固定输入及对应包内手册 |
 | --- | --- |
 | Windows 10/11 x64 | Windows 包内 `windows/README.md`。默认用官方 1.1.0 x64 安装包生成便携版或安装器；1.1.0 用不了时加 `--version 0.71.2` 改用 0.71.2。保留同包的 `mac/` 共用代码。 |
-| Mac（Apple Silicon） | Mac 包内 `mac/README.md`。使用官方 0.71.2 Apple Silicon 原版（Mac 尚未适配 1.1.0）；本机图形控制还需合适的签名和系统授权。 |
+| Mac（Apple Silicon 或 Intel） | Mac 包内 `mac/README.md`。使用官方 0.71.2 原版（Mac 尚未适配 1.1.0），工具按本机芯片选择 Apple Silicon 或 Intel 版，Intel 是实验支持；本机图形控制还需合适的签名和系统授权。 |
 | iPhone | iOS 包内 `ios/README.md` 的「签名」。自备 1.16.0 (23152) 的已解密 IPA；按 `extension-signing.json` 为主应用和三个扩展配置各自的签名。 |
 | Android 9+ | Android 包内 `android/README.md`。默认用官方 Windows 1.1.0 安装包（和 Windows 客户端同一个文件）的界面和项目外壳生成 APK，1.1.0 界面用不了时加 `--version 0.71.2`；不使用官方 Android APK；单独备份自己的签名密钥，升级须使用同一密钥。 |
 | 网页版（任何浏览器） | 网页版包内 `web/README.md`。在电脑上用官方 Windows 1.1.0 安装包（和 Windows、Android 同一个文件）生成界面包，加 `--upload <GROKBOT_PUBLIC_URL>` 直接装到 Host 并启用（管理员密码经 `GROKBOT_ADMIN_PASSWORD` 传入），或在管理页「网页版」上传；1.1.0 界面用不了时加 `--version 0.71.2`。之后在各设备的浏览器打开 `<GROKBOT_PUBLIC_URL>/web/`，输入配对码登录。保留同包的 `android/`、`windows/`、`mac/` 共用代码。界面包含有官方界面，只装在机主自己的 Host 上，不要转发或公开。 |

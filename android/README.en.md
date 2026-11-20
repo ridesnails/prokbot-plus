@@ -1,10 +1,10 @@
 # ProkBot Plus Android Client
 
+[简体中文](README.md)
+
 Builds, on your computer, an Android Grok Bot that connects to your own Host. The phone needs Android 9 or later (API 28+). The build machine can run Windows, macOS or Linux and needs Node.js 22.12+ and the full repository (code in `mac/` and `windows/` is shared).
 
-See the [AI installation guide](../docs/AI-INSTALL.en.md#94-android-phone) for the full deployment and the [technical documentation](../docs/ARCHITECTURE.en.md#android-client) for how it works.
-
-[简体中文](README.md)
+See the [deployment guide](../docs/AI-INSTALL.en.md#client-packages) for the full deployment and the [technical documentation](../docs/ARCHITECTURE.en.md#android-client) for how it works.
 
 ## Why not patch the official Android app
 
@@ -32,9 +32,7 @@ The tool downloads and verifies the official `Grok_Bot_1.1.0_Setup.exe` (the sam
 
 If the 1.1.0 interface does not work for you, add `--version 0.71.2` to use the 0.71.2 interface (it downloads `Grok_Bot_0.71.2_Setup.exe`), or pass a downloaded 0.71.2 installer with `--source`; the tool recognizes the version by its digest. Both interfaces produce the same APK filename, so add `--force` to replace the previous output or pick another folder with `--output`. The two APKs share the shell and signing key and install over each other without losing the pairing.
 
-The verification report, the patch record and `assets/web/client/build.json` inside the APK use `shell.versionName`, `shell.versionCode` and `rendererVersion` instead of the old ambiguous `version` field. Before writing the outputs, the patcher checks the signed APK's compiled manifest and embedded build record against the pins.
-
-Copy the APK to the phone and install it (allow "Install unknown apps"), or use `adb install -r`. Open it and enter the Host address and the six-character pairing code. A paired phone retries only its original Host origin. If the hostname, scheme, or port changes, get a fresh code from the new Host. Do not uninstall the app to repair pairing.
+Copy the APK to the phone and install it (allow "Install unknown apps"), or use `adb install -r`. Open it and enter the Host address and the 6-character pairing code. A paired phone retries only its original Host origin. If the hostname, scheme, or port changes, get a fresh code from the new Host. Do not uninstall the app to repair pairing.
 
 <p align="center"><img src="../docs/images/android-connect-en.png" alt="First-time pairing on Android: enter the Host address and pairing code" width="240"></p>
 
@@ -86,7 +84,8 @@ The first build creates a signing key that belongs only to you (`~/.grokbot-loca
 - `client/`: bridge code that runs in the WebView in place of Electron's main process and preload. `patchers/renderer-patches.mjs`: the few changes to the official interface (each file verified by SHA-256, every anchor must be unique).
 - `shell/`: Android shell source (Kotlin, no third-party libraries). For a new shell release, update `shell/app/build.gradle.kts` and `shell.versionName` / `shell.versionCode` in `patchers/supported.json` together. Increase the code from the previous installed version (the old renderer-numbered shell used 7102). The top level of `patchers/supported.json` is the recommended interface (`desktopVersion` 1.1.0), and `fallback` lists the older one that still builds (0.71.2). Each version's Windows inputs and recipes are shared with the Windows client: the recommended one in `windows/patchers/desktop/`, older ones in `windows/patchers/desktop/<version>/`; `patchers/renderer-patches.mjs` keeps the interface edits per version. Do not change these versions or renderer hashes unless the new Windows input and recipes have been verified.
 - After changing the shell, run `node android/shell/release-shell.mjs`. It checks the compiled manifest before updating `dist/grokbot-android-shell.apk` and its digest. Building needs JDK 17+ and the Android SDK (`ANDROID_HOME`); use `--offline` with a cached Gradle distribution and dependencies. Gradle runs with one worker.
-- Tests: `node --test "android/tests/*.test.mjs"`
+- The verification report, the build record and `assets/web/client/build.json` inside the APK record versions as `shell.versionName`, `shell.versionCode` and `rendererVersion`. Before writing the outputs, the patcher checks the signed APK's compiled manifest against the pins.
+- Tests: `node --test "android/tests/*.test.mjs"`; the environment variables they need are under [tests and maintenance](../docs/ARCHITECTURE.en.md#testing).
 
 ## License and support
 

@@ -1,12 +1,10 @@
 # ProkBot Plus 网页版
 
-在浏览器里使用自己 Host 上的 Bot：Windows、Mac、Linux 电脑，Android 和 iPhone 手机，iPad 和安卓平板都可以，不用安装客户端。界面会随屏幕排版：电脑和横屏平板是官方桌面版的样子，手机是官方手机版的样子。
-
-网页版用的界面和 Android 客户端相同，都是官方桌面版的界面，取自你自己下载的官方 Windows 安装包（推荐 1.1.0，用不了时改用 0.71.2）。你先在电脑上生成一个「界面包」，再上传到自己的 Host；Host 只把它提供给已经用配对码登录的浏览器。项目不分发这个界面包。
-
-部署步骤见 [AI 部署手册](../docs/AI-INSTALL.md#client-packages)，实现原理见[技术文档](../docs/ARCHITECTURE.md#web-client)。
-
 [English](README.en.md)
+
+在浏览器里使用自己 Host 上的 Bot，电脑、手机、平板都可以，不用安装客户端。电脑和横屏平板是官方桌面版的排版，手机是官方手机版的排版。
+
+界面和 Android 客户端相同，取自你自己下载的官方 Windows 安装包（推荐 1.1.0，用不了再用 0.71.2）。你在电脑上生成「界面包」，上传到自己的 Host；Host 只把它提供给用配对码登录的浏览器。本项目不分发界面包。
 
 <p align="center"><img src="../docs/images/web-zh.png" alt="网页版：电脑浏览器和 iPhone" width="860"></p>
 
@@ -87,21 +85,9 @@ Host 会按界面包里的清单逐个核对文件的大小和 SHA-256，核对�
 - 浏览器要求：Chrome、Edge、Firefox、Safari 的较新版本。iPhone 和 iPad 上所有浏览器都使用 Safari 的内核，表现与 Safari 相同。
 - 设置和界面状态保存在浏览器本地；换一个浏览器或清除网站数据后，设置会恢复默认（对话和 Bot 都在 Host 上，不受影响）。清除网站数据也会清掉登录状态，需要重新配对。
 
-### 已经测试过的环境
+### 测试情况
 
-每次发布前，用 Playwright 驱动三种浏览器内核，在下面这些设备尺寸上跑一遍完整流程：配对登录、用链接打开对话、看图、收通知、发消息、手机上返回 Bot 列表、刷新后保持登录；Windows Chrome 上还测退出登录和从管理页打开。1.1.0 和 0.71.2 两种界面都测：
-
-| 环境 | 浏览器内核 | 屏幕 |
-| --- | --- | --- |
-| Windows 电脑 | Chromium（Chrome / Edge） | 1440×900 |
-| Windows 电脑 | Firefox | 1280×800 |
-| Mac 电脑 | WebKit（Safari） | 1280×800 |
-| Android 手机 | Chromium | Pixel 7 |
-| Android 平板 | Chromium | Galaxy Tab S4 |
-| iPhone | WebKit | iPhone 15、iPhone SE |
-| iPad | WebKit | iPad Pro 11 横屏 |
-
-这些是模拟的设备尺寸和浏览器内核，不是真机。此外在一台真实的 Linux 服务器上验证过上传、局域网 http 登录、真实模型对话、Bot 操作自己的电脑并发回截图，以及电脑和 iPhone 尺寸下的 Bot 电脑实时画面。真机上遇到问题，欢迎[提交 Issue](https://github.com/ferretgeek/prokbot-plus/issues)。
+每次发布前用 Playwright 在 8 种模拟设备尺寸上跑完整流程（Windows 的 Chromium 和 Firefox、Mac 的 WebKit、Android 手机和平板、iPhone 15、iPhone SE、iPad Pro 横屏），1.1.0 和 0.71.2 两种界面都测。另在真实服务器上验证过上传、局域网 http 登录、真实模型对话和 Bot 电脑的实时画面。没有在真机浏览器上测过，遇到问题欢迎[提交 Issue](https://github.com/ferretgeek/prokbot-plus/issues)。
 
 ## 安全
 
@@ -130,14 +116,9 @@ Host 会按界面包里的清单逐个核对文件的大小和 SHA-256，核对�
 
 ## 维护
 
-- `client/`：只在浏览器里使用的代码。`native.js` 代替 Android 外壳的原生接口（登录、设置、下载、通知权限），`web-shell.js` 处理返回键、键盘、主题和通知，`boot-data.js` 在界面加载前准备启动数据，`web.css` 是浏览器专用的样式。其余桥接代码与 Android 客户端共用（`android/client/`）。
-- `patchers/patch.mjs`：生成界面包；Windows 输入、recipe 和界面补丁都与 Android 客户端共用，支持的版本见 `android/patchers/supported.json`。`patchers/upload.mjs`：命令行上传。
-- Host 端：`host/server/web-client.mjs`（界面包的校验、安装和提供，登录 Cookie）、`host/server/public/web-login.*`（登录页）、`host/server/public/web-client.js`（管理页「网页版」）。
-- 测试：
-  - `node --test "web/tests/*.test.mjs"`：生成界面包和上传流程；设置 `PROKBOT_WEB_TEST_SOURCE`（1.1.0）和 `PROKBOT_WEB_TEST_FALLBACK_SOURCE`（0.71.2）为官方安装包路径时，还会用真实安装包生成并核对；
-  - `node --test host/tests/web-client.test.mjs`：Host 端；
-  - `python web/tests/browser-flows.py <界面包>`：上面的浏览器矩阵。需要先执行 `npm ci --prefix host/server` 并安装 Playwright（`pip install playwright` 和 `playwright install chromium firefox webkit`）。
+- `client/` 是只在浏览器里用的代码（`native.js`、`web-shell.js`、`boot-data.js`、`web.css`），其余桥接与 Android 客户端共用（`android/client/`）；`patchers/` 生成和上传界面包；Host 端是 `host/server/web-client.mjs`。
+- 实现原理见[技术文档](../docs/ARCHITECTURE.md#web-client)，测试命令和需要的环境变量见[测试与维护](../docs/ARCHITECTURE.md#testing)。
 
 ## 许可与支持
 
-仅限非商业使用，见 [LICENSE](../LICENSE)。本项目多数代码由 AI 辅助生成。生成的界面包含有官方程序的界面，只能装在你自己的 Host 上，不要公开分享。
+仅限非商业使用，见 [LICENSE](../LICENSE)。本项目多数代码由 AI 辅助编写。生成的界面包含有官方程序的界面，只能装在你自己的 Host 上，不要公开分享。

@@ -1,10 +1,10 @@
-# ProkBot Plus iOS Patch
+# ProkBot Plus iOS 补丁
+
+[English](README.en.md)
 
 为 Grok Bot 1.16.0（23152）arm64 砸壳 IPA 注入补丁。主程序和三个扩展都必须是解密过的，需要 Python 3.10+。本仓库不提供任何原版或修改过的 IPA，请自己准备。
 
-完整的部署步骤见 [AI 部署手册](../docs/AI-INSTALL.md)，实现原理见[技术文档](../docs/ARCHITECTURE.md)。
-
-[English](README.en.md)
+完整的部署步骤见[部署手册](../docs/AI-INSTALL.md#client-packages)，实现原理见[技术文档](../docs/ARCHITECTURE.md#ios-客户端)。
 
 ## 使用
 
@@ -37,4 +37,4 @@ python3 release/patch-ios.py \
 
 ## 许可与支持
 
-仅限非商业使用，见 [LICENSE](LICENSE)。本项目多数代码由 AI 辅助生成。
+仅限非商业使用，见 [LICENSE](LICENSE)。本项目多数代码由 AI 辅助编写。

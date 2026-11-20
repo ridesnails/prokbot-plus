@@ -1,12 +1,10 @@
 # ProkBot Plus web client
 
-Use the Bots on your own Host from a browser on Windows, Mac or Linux computers, Android phones, iPhones, iPads and Android tablets, without installing a client. The layout follows the screen: computers and landscape tablets get the official desktop layout, phones get the official phone layout.
+[简体中文](README.md)
 
-The web client uses the same interface as the Android client: the official desktop interface, taken from the official Windows installer that you download yourself (1.1.0 recommended, 0.71.2 when 1.1.0 does not work). You build an "interface bundle" on a computer and upload it to your own Host. The Host serves it only to browsers that have signed in with a pairing code. The project does not distribute the bundle.
+Use the Bots on your own Host from a browser on a computer, phone or tablet, without installing a client. Computers and landscape tablets get the official desktop layout; phones get the official phone layout.
 
-Deployment steps are in the [AI install guide](../docs/AI-INSTALL.en.md#client-packages). How it works is in the [architecture notes](../docs/ARCHITECTURE.en.md#web-client).
-
-[中文](README.md)
+The interface is the same as the Android client's, taken from the official Windows installer you download yourself (1.1.0 recommended, 0.71.2 if it does not work). You build an "interface bundle" on a computer and upload it to your own Host, which serves it only to browsers signed in with a pairing code. The project does not distribute the bundle.
 
 <p align="center"><img src="../docs/images/web-en.png" alt="Web client in a desktop browser and on an iPhone" width="860"></p>
 
@@ -87,21 +85,9 @@ The web client can open from the home screen like an app, full screen and withou
 - Browsers: recent versions of Chrome, Edge, Firefox and Safari. On iPhone and iPad every browser uses Safari's engine and behaves like Safari.
 - Settings and interface state are stored in the browser. In another browser, or after clearing site data, settings return to their defaults (conversations and Bots live on the Host and are unaffected). Clearing site data also clears the sign-in, so pair again.
 
-### Tested environments
+### Testing
 
-Before every release, Playwright drives three browser engines through the full flow at the screen sizes below: pairing, opening a conversation from a link, viewing an image, receiving a notification, sending a message, going back to the Bot list on a phone and staying signed in after a reload. Windows Chrome additionally covers signing out and opening from the admin page. Both the 1.1.0 and 0.71.2 interfaces are tested:
-
-| Environment | Browser engine | Screen |
-| --- | --- | --- |
-| Windows computer | Chromium (Chrome / Edge) | 1440×900 |
-| Windows computer | Firefox | 1280×800 |
-| Mac computer | WebKit (Safari) | 1280×800 |
-| Android phone | Chromium | Pixel 7 |
-| Android tablet | Chromium | Galaxy Tab S4 |
-| iPhone | WebKit | iPhone 15, iPhone SE |
-| iPad | WebKit | iPad Pro 11 landscape |
-
-These are emulated screen sizes on the real browser engines, not physical devices. A real Linux server was also used to verify uploading, signing in over LAN http, a conversation with a real model, a Bot operating its own computer and sending back a screenshot, and the live Bot computer screen at desktop and iPhone sizes. If something goes wrong on a real device, please [open an issue](https://github.com/ferretgeek/prokbot-plus/issues).
+Before every release, Playwright runs the full flow at 8 emulated device sizes (Chromium and Firefox on Windows, WebKit on Mac, Android phone and tablet, iPhone 15, iPhone SE, iPad Pro in landscape) with both the 1.1.0 and 0.71.2 interfaces. Uploading, LAN http sign-in, real model chats and the live view of the Bot's computer were also verified on a real server. It has not been tested in browsers on real devices; please [open an issue](https://github.com/ferretgeek/prokbot-plus/issues) if something goes wrong on yours.
 
 ## Security
 
@@ -130,13 +116,8 @@ These are emulated screen sizes on the real browser engines, not physical device
 
 ## Maintenance
 
-- `client/`: code used only in the browser. `native.js` stands in for the Android shell's native calls (sign-in, settings, downloads, notification permission); `web-shell.js` handles back navigation, the keyboard, the theme and notifications; `boot-data.js` prepares the start-up data before the interface loads; `web.css` holds browser-only styles. The rest of the bridge is shared with the Android client (`android/client/`).
-- `patchers/patch.mjs` builds the bundle. The Windows inputs, recipes and interface patches are shared with the Android client; supported versions are in `android/patchers/supported.json`. `patchers/upload.mjs` uploads from the command line.
-- Host side: `host/server/web-client.mjs` (checking, installing and serving the bundle; the sign-in cookie), `host/server/public/web-login.*` (sign-in page) and `host/server/public/web-client.js` (the admin page's **Web client**).
-- Tests:
-  - `node --test "web/tests/*.test.mjs"`: building and uploading the bundle. With `PROKBOT_WEB_TEST_SOURCE` (1.1.0) and `PROKBOT_WEB_TEST_FALLBACK_SOURCE` (0.71.2) set to official installer paths, it also builds from the real installers and checks the result;
-  - `node --test host/tests/web-client.test.mjs`: the Host side;
-  - `python web/tests/browser-flows.py <bundle>`: the browser matrix above. Run `npm ci --prefix host/server` first and install Playwright (`pip install playwright`, then `playwright install chromium firefox webkit`).
+- `client/` holds the browser-only code (`native.js`, `web-shell.js`, `boot-data.js`, `web.css`); the rest of the bridge is shared with the Android client (`android/client/`). `patchers/` builds and uploads bundles; the Host side is `host/server/web-client.mjs`.
+- How it works is in the [technical documentation](../docs/ARCHITECTURE.en.md#web-client); test commands and the environment variables they need are under [tests and maintenance](../docs/ARCHITECTURE.en.md#testing).
 
 ## License and support
 

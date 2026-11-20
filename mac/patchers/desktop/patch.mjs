@@ -13,13 +13,16 @@ import { acquireDesktopSource } from './download-original.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
-const supported = JSON.parse(await readFile(path.join(here, 'supported.json')));
+// Apple silicon inputs live here; the Intel build of the same version has its own pins and
+// recipes (ported with windows/tools/port-desktop-recipes.mjs --platform mac) under x64/.
+const inputDirectories = { arm64: here, x64: path.join(here, 'x64') };
+const tailcatBinaries = { arm64: 'dist/network/grokbot-tailcat', x64: 'dist/network/x64/grokbot-tailcat' };
 const startedAt = performance.now();
 const timings = {};
 const args = process.argv.slice(2);
 const arg = name => { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : null; };
 if (args.includes('--help')) {
-  console.log('node patchers/desktop/patch.mjs [--source <原版.app或.dmg>] [--output <新.app>] [--backup <原版备份.app>] [--identity <auto|证书名称或SHA1|->] [--verify-only]\n省略 --source 时自动下载指定版本原版。');
+  console.log('node patchers/desktop/patch.mjs [--arch <arm64|x64>] [--source <原版.app或.dmg>] [--output <新.app>] [--backup <原版备份.app>] [--identity <auto|证书名称或SHA1|->] [--verify-only]\n省略 --source 时自动下载指定版本原版；省略 --arch 时按本机芯片选择（Apple 芯片 arm64，Intel x64）。');
   process.exit(0);
 }
 if (process.platform !== 'darwin') throw new Error('macOS App 构建与签名必须在 macOS 上进行。');
@@ -32,6 +35,20 @@ const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const hash = async filename => sha(await readFile(filename));
 const exists = async filename => { try { await stat(filename); return true; } catch (error) { if (error.code === 'ENOENT') return false; throw error; } };
 const run = (command, argv, options = {}) => execFileSync(command, argv, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...options });
+// hw.optional.arm64 is 1 on Apple silicon even when Node itself runs under Rosetta.
+const machineArch = () => { try { return run('sysctl', ['-n', 'hw.optional.arm64']).trim() === '1' ? 'arm64' : 'x64'; } catch { return 'x64'; } };
+// A given DMG names its own build; download-original.mjs then checks its full digest.
+async function sourceArch(source) {
+  if (!source || path.extname(source).toLowerCase() !== '.dmg') return null;
+  const { size } = await stat(path.resolve(source));
+  for (const [name, directory] of Object.entries(inputDirectories))
+    if (JSON.parse(await readFile(path.join(directory, 'supported.json'))).archive.bytes === size) return name;
+  return null;
+}
+const arch = arg('--arch') ?? await sourceArch(arg('--source')) ?? machineArch();
+if (!Object.hasOwn(inputDirectories, arch)) throw new Error('--arch 只能是 arm64 或 x64。');
+const inputs = inputDirectories[arch];
+const supported = JSON.parse(await readFile(path.join(inputs, 'supported.json')));
 const plist = filename => JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', filename]));
 const writePlist = async (filename, value) => { await writeFile(filename, JSON.stringify(value)); run('plutil', ['-convert', 'xml1', filename]); };
 async function nativeFiles(directory) {
@@ -78,16 +95,16 @@ try {
   const [asarSha256, frameworkSha256] = await Promise.all([hash(asarPath), hash(path.join(app, frameworkRelative))]);
   if (info.CFBundleIdentifier !== supported.bundleId || info.CFBundleShortVersionString !== supported.version ||
       asarSha256 !== supported.asarSha256 || frameworkSha256 !== supported.frameworkSha256)
-    throw new Error(`不支持此发行包。仅支持未经修改的 Grok Bot ${supported.version} macOS ${supported.architecture}；版本、ASAR 或 Electron Framework 摘要不匹配。`);
+    throw new Error(`不支持此发行包。仅支持未经修改的 Grok Bot ${supported.version} macOS ${supported.architecture}；版本、ASAR 或 Electron Framework 摘要不匹配。另一种芯片的原版请加 --arch ${arch === 'arm64' ? 'x64' : 'arm64'}。`);
   const asar = createRequire(import.meta.url)('@electron/asar');
   const unpacked = path.join(temporary, 'app');
   asar.extractAll(asarPath, unpacked);
-  const notificationPolicy = await extractNotificationPolicy(unpacked, here);
+  const notificationPolicy = await extractNotificationPolicy(unpacked, inputs);
   const pkgPath = path.join(unpacked, 'package.json');
   const pkg = JSON.parse(await readFile(pkgPath));
   if (pkg.version !== supported.version) throw new Error('ASAR 包版本不一致。');
   const patchStarted = performance.now();
-  await applyReleaseRecipes(unpacked, path.join(here, 'recipes'));
+  await applyReleaseRecipes(unpacked, path.join(inputs, 'recipes'));
   timings.patchSeconds = Number(((performance.now() - patchStarted) / 1000).toFixed(3));
   console.log(JSON.stringify({ verified: true, recipesVerified: true, version: supported.version, architecture: supported.architecture, asarSha256 }));
   if (!args.includes('--verify-only')) {
@@ -109,7 +126,7 @@ try {
     await cp(path.join(root, 'clients/desktop'), path.join(unpacked, 'local-client'), { recursive: true, filter: filename => !filename.endsWith('/notification-policy.mjs') });
     await writeFile(path.join(unpacked, 'local-client/notification-policy.mjs'), notificationPolicy);
     await cp(path.join(root, 'clients/shared'), path.join(unpacked, 'shared'), { recursive: true });
-    await cp(path.join(root, 'dist/network/grokbot-tailcat'), path.join(output, 'Contents/Resources/grokbot-tailcat'));
+    await cp(path.join(root, tailcatBinaries[arch]), path.join(output, 'Contents/Resources/grokbot-tailcat'));
     // Copies made on Windows or extracted from some archives lose the executable bit.
     await chmod(path.join(output, 'Contents/Resources/grokbot-tailcat'), 0o755);
     await cp(path.join(root, 'network/TAILCAT-LICENSE'), path.join(output, 'Contents/Resources/TAILCAT-LICENSE'));

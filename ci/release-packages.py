@@ -39,13 +39,15 @@ TOOLS = ('docs/AI-INSTALL.md', 'docs/AI-INSTALL.en.md', 'docs/ARCHITECTURE.md', 
          'windows/dist/network/grokbot-tailcat.exe', 'windows/dist/installer/grokbot-setup-stub.exe',
          'mac/clients/desktop/main.mjs', 'mac/patchers/desktop/patch.mjs', 'mac/patchers/desktop/release-recipes.mjs',
          'mac/patchers/desktop/supported.json', 'mac/patchers/desktop/recipes/manifest.json',
+         'mac/patchers/desktop/x64/supported.json', 'mac/patchers/desktop/x64/recipes/manifest.json',
+         'mac/patchers/desktop/x64/notification-policy.json', 'mac/dist/network/x64/grokbot-tailcat',
          'mac/patchers/desktop/download-original.mjs', 'mac/patchers/desktop/package.json',
          'mac/patchers/desktop/node_modules/@electron/asar/package.json', 'mac/patchers/desktop/node_modules/@electron/asar/lib/asar.js',
          'ios/release/patch-ios.py', 'ios/recipes/ios/manifest.json', 'android/patchers/patch.mjs',
          'android/patchers/supported.json', 'android/dist/grokbot-android-shell.apk',
          'web/patchers/patch.mjs', 'web/patchers/upload.mjs', 'web/client/native.js', 'web/client/boot-data.js')
 EXECUTABLES = ('host/bin/grokbot-tailcat', 'host/bin/linux-arm64/grokbot-tailcat',
-               'mac/dist/network/grokbot-tailcat', 'ios/bin/GrokBotLocal.dylib',
+               'mac/dist/network/grokbot-tailcat', 'mac/dist/network/x64/grokbot-tailcat', 'ios/bin/GrokBotLocal.dylib',
                'mac/patchers/desktop/node_modules/.bin/asar', 'mac/patchers/desktop/node_modules/@electron/asar/bin/asar.mjs',
                'android/shell/gradlew')
 

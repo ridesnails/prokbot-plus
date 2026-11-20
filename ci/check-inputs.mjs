@@ -66,6 +66,18 @@ for (const name of ['mac', 'windows']) {
   desktopPins[`${name}/patchers/desktop`] = { original, pins };
   versions[name] = original.version;
 }
+// The Intel macOS build of the same version, with recipes ported from the Apple silicon ones.
+{
+  const dir = 'mac/patchers/desktop/x64';
+  const { original, pins } = await checkDesktop(dir);
+  const arm = desktopPins['mac/patchers/desktop'];
+  assert.equal(original.architecture, 'x64');
+  for (const key of ['version', 'bundleId', 'preloadSha256']) assert.equal(original[key], arm.original[key], `${dir}: ${key} differs from Apple silicon`);
+  assert.deepEqual([...pins.keys()].map(target => target.replace(/-[\w-]{8}\.js$/, '.js')),
+    [...arm.pins.keys()].map(target => target.replace(/-[\w-]{8}\.js$/, '.js')), `${dir}: recipe targets differ from Apple silicon`);
+  desktopPins[dir] = { original, pins };
+  versions.macIntel = original.version;
+}
 // Older Windows releases the patch still builds (the fallback), each in a directory named after its version.
 const windowsFallback = [];
 for (const { directory, supported } of (await windowsReleases()).slice(1)) {

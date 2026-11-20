@@ -1,10 +1,10 @@
 # ProkBot Plus Android 客户端
 
+[English](README.en.md)
+
 在电脑上生成一个连接自己 Host 的 Android 版 Grok Bot。手机需要 Android 9 及以上（API 28+）。生成用的电脑可以是 Windows、macOS 或 Linux，需要 Node.js 22.12+ 和完整的仓库（共用 `mac/`、`windows/` 中的代码）。
 
-完整的部署步骤见 [AI 部署手册](../docs/AI-INSTALL.md#94-android-手机)，实现原理见[技术文档](../docs/ARCHITECTURE.md#android-客户端)。
-
-[English](README.en.md)
+完整的部署步骤见[部署手册](../docs/AI-INSTALL.md#client-packages)，实现原理见[技术文档](../docs/ARCHITECTURE.md#android-客户端)。
 
 ## 为什么不是改官方 Android 版
 
@@ -31,8 +31,6 @@ node android/patchers/patch.mjs
 | `GrokBotLocal-1.1.0-android.patch.json` | 生成记录：外壳和界面来源版本、输入文件摘要、APK 摘要、签名证书指纹 |
 
 1.1.0 的界面用不了时，加 `--version 0.71.2` 改用 0.71.2 的界面（自动下载 `Grok_Bot_0.71.2_Setup.exe`），或用 `--source` 指定已下载的 0.71.2 安装包，工具按摘要识别版本。两种界面生成的 APK 文件名相同，再次生成时加 `--force` 覆盖旧输出，或用 `--output` 换个目录。两种 APK 的外壳和签名相同，可以直接覆盖安装，不会清除配对。
-
-校验报告、补丁生成记录和 APK 内的 `assets/web/client/build.json` 都用 `shell.versionName`、`shell.versionCode` 和 `rendererVersion` 代替原来含义不明确的 `version` 字段。写出产物前，工具还会按固定版本核对签名后 APK 的编译清单和内置生成记录。
 
 把 APK 传到手机上安装（需要允许「安装未知应用」），或者用 `adb install -r`。打开后填写 Host 地址和六位配对码。已配对的设备只能在原 Host 地址重试连接；域名、协议或端口变了，请用新地址上的管理页生成新配对码。不要卸载 App 来修复配对。
 
@@ -86,8 +84,9 @@ node android/patchers/patch.mjs
 - `client/`：运行在 WebView 里的桥接代码，代替 Electron 的主进程和 preload；`patchers/renderer-patches.mjs`：对官方界面的少量修改（逐个文件校验 SHA-256，锚点必须唯一）。
 - `shell/`：Android 外壳源码（Kotlin，不依赖第三方库）。发布新版外壳时，同步修改 `shell/app/build.gradle.kts` 和 `patchers/supported.json` 的 `shell.versionName`、`shell.versionCode`。版本码须高于上一版（旧外壳随界面编号，版本码为 7102）。`patchers/supported.json` 顶层是推荐的界面版本（`desktopVersion` 1.1.0），`fallback` 列出仍可生成的旧版本（0.71.2）。各版本的 Windows 输入和 recipe 与 Windows 客户端共用：推荐版本在 `windows/patchers/desktop/`，旧版本在 `windows/patchers/desktop/<版本>/`；界面补丁在 `patchers/renderer-patches.mjs` 中按版本分开。未经新版 Windows 输入和 recipe 验证，不改这些版本或界面摘要。
 - 修改外壳后执行 `node android/shell/release-shell.mjs`。工具先核对编译后的清单，再更新 `dist/grokbot-android-shell.apk` 和摘要。需要 JDK 17+ 和 Android SDK（`ANDROID_HOME`）；已缓存 Gradle 发行包和依赖时可加 `--offline`，Gradle 只用一个 worker。
-- 测试：`node --test "android/tests/*.test.mjs"`
+- 校验报告、生成记录和 APK 内的 `assets/web/client/build.json` 用 `shell.versionName`、`shell.versionCode` 和 `rendererVersion` 记录版本。写出产物前，工具会按固定版本核对签名后 APK 的编译清单。
+- 测试：`node --test "android/tests/*.test.mjs"`，需要的环境变量见[测试与维护](../docs/ARCHITECTURE.md#testing)。
 
 ## 许可与支持
 
-仅限非商业使用，见 [LICENSE](../LICENSE)。本项目多数代码由 AI 辅助生成。
+仅限非商业使用，见 [LICENSE](../LICENSE)。本项目多数代码由 AI 辅助编写。

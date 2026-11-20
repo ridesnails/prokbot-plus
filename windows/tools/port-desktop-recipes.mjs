@@ -9,7 +9,11 @@
 // differences already present between the two originals. It goes to the Windows input
 // directory for the macOS version unless --out names another.
 //
+// With --platform mac the target is the Intel macOS build of the same version: the
+// Windows interface wording is not applied and the output goes to mac/patchers/desktop/x64.
+//
 //   node windows/tools/port-desktop-recipes.mjs --mac <mac app.asar|dir> --win <win app.asar|dir>
+//   node windows/tools/port-desktop-recipes.mjs --platform mac --mac <arm64 app.asar|dir> --win <x64 app.asar|dir>
 import { mkdtemp, readFile, readdir, rm, stat, writeFile, mkdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
@@ -27,7 +31,10 @@ const macRecipes = path.join(repo, 'mac/patchers/desktop/recipes');
 const args = process.argv.slice(2);
 const arg = name => { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : null; };
 const macVersion = JSON.parse(await readFile(path.join(repo, 'mac/patchers/desktop/supported.json'), 'utf8')).version;
-const output = path.resolve(arg('--out') ?? (await windowsInputs(macVersion)).directory);
+const platform = arg('--platform') ?? 'windows';
+if (!['windows', 'mac'].includes(platform)) throw new Error('--platform must be windows or mac');
+const output = path.resolve(arg('--out') ?? (platform === 'mac'
+  ? path.join(repo, 'mac/patchers/desktop/x64') : (await windowsInputs(macVersion)).directory));
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const ASSETS = 'dist/renderer/assets';
 
@@ -176,7 +183,7 @@ try {
       } else {
         let text = translate(Buffer.from(op[1], 'base64').toString('utf8'), pairs, exact);
         if (!entry.path.startsWith('dist/renderer/')) text = translateExports(text, macSource, winSource, segments, renamed);
-        else text = windowsText(text);
+        else if (platform === 'windows') text = windowsText(text);
         ops.push(['add', Buffer.from(text, 'utf8').toString('base64')]);
         expected.push(Buffer.from(text, 'utf8'));
       }
@@ -207,7 +214,7 @@ try {
     report.push({ path: winPath(entry.path, pairs), platformDifferences: differences.length, outputDifferences: outputDifferences.length,
       ...(renamed.length ? { renamedExports: Object.fromEntries(renamed) } : {}) });
   }
-  for (const [from, uses] of textUses) if (!uses) throw new Error(`Expected interface text not found: ${from}`);
+  if (platform === 'windows') for (const [from, uses] of textUses) if (!uses) throw new Error(`Expected interface text not found: ${from}`);
   await writeFile(path.join(recipes, 'manifest.json'), JSON.stringify({ schema: manifest.schema, files }, null, 2) + '\n');
   // The notification decider is read from the user's original; only its location is recorded.
   const policy = JSON.parse(await readFile(path.join(repo, 'mac/patchers/desktop/notification-policy.json'), 'utf8'));

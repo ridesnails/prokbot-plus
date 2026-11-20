@@ -1,10 +1,10 @@
 # ProkBot Plus iOS Patch
 
+[简体中文](README.md)
+
 Patch a decrypted Grok Bot 1.16.0 (23152) arm64 IPA. The app and all three extensions must be decrypted. Requires Python 3.10+. This repository does not provide any original or modified IPA; bring your own.
 
-For the full deployment steps see the [AI install guide](../docs/AI-INSTALL.en.md); for how it works see the [technical documentation](../docs/ARCHITECTURE.en.md).
-
-[简体中文](README.md)
+For the full deployment steps see the [deployment guide](../docs/AI-INSTALL.en.md#client-packages); for how it works see the [technical documentation](../docs/ARCHITECTURE.en.md#ios-client).
 
 ## Use
 
@@ -15,7 +15,7 @@ python3 release/patch-ios.py \
   --bundle-id dev.grokbot.local
 ```
 
-Outputs `GrokBot-Local-resignable.ipa`, `GrokBotLocal.dylib` and `extension-signing.json`. Sign and install it with your own tools as described below, then enter your Host address and six-character pairing code.
+Outputs `GrokBot-Local-resignable.ipa`, `GrokBotLocal.dylib` and `extension-signing.json`. Sign and install it with your own tools as described below, then enter your Host address and 6-character pairing code.
 
 Push notifications use APNs or Bark, configured in the Host console. Enable realtime voice in the app settings.
 
@@ -37,4 +37,4 @@ The patch keeps the Widgets, Share and NotificationService extensions. Configure
 
 ## License and support
 
-Noncommercial use only. See [LICENSE](LICENSE). Most code in this project was generated with AI assistance.
+Noncommercial use only. See [LICENSE](LICENSE). Most of this project's code was written with AI assistance.

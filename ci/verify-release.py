@@ -32,7 +32,7 @@ SHELL = 'android/dist/grokbot-android-shell.apk'
 MANIFEST = 'android/patchers/supported.json'
 HELPERS = {'windows/dist/network/grokbot-tailcat.exe', 'windows/dist/installer/grokbot-setup-stub.exe',
            'host/bin/grokbot-tailcat', 'host/bin/linux-arm64/grokbot-tailcat',
-           'mac/dist/network/grokbot-tailcat', 'ios/bin/GrokBotLocal.dylib'}
+           'mac/dist/network/grokbot-tailcat', 'mac/dist/network/x64/grokbot-tailcat', 'ios/bin/GrokBotLocal.dylib'}
 PRIVATE = set(('.git .cache .ssh .gnupg .aws .azure .kube .codex .grokbot-local .netrc .npmrc '
                '.private private secrets .secrets credentials .credentials host-data box-home box-workspace '
                'backups .gradle .grokbot .docker .envrc android-signing.json auth.json model.env setup-key credentials.json secrets.json').split())
