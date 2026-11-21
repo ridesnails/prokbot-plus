@@ -12,6 +12,7 @@ import { HostSupervisor } from '../deploy/host-supervisor.mjs';
 
 for (const [script, name] of [['deployment_checks.py', 'deployment platform and mode selection'],
   ['deployment_identity.py', 'same-daemon recovery identity and shared image-tag transactions'],
+  ['deployment_data.py', 'Host data tree initialization'],
   ['deployment_volumes.py', 'isolated upgrade, archive round trips and fail-closed recovery']]) test(name, () => {
   const result = spawnSync(process.platform === 'win32' ? 'python' : 'python3',
     ['-B', fileURLToPath(new URL(script, import.meta.url))], { encoding: 'utf8', timeout: 90_000 });

@@ -21,9 +21,9 @@
 
 开始前一次问清：新装还是升级？服务器及 SSH 访问方式？客户端从哪访问（本机、专网、HTTPS 域名）？使用哪种模型接口、模型 ID、哪些客户端？密码和 API Key 由用户在管理页输入，不要贴到聊天、工单或日志。已有服务、域名、反向代理和防火墙不默认改动。升级演练、恢复演练和容量测试只在获准的专用非生产实例上做，不使用生产服务、数据卷或凭据。
 
-服务器需 Python 3.10+、可访问的 Linux Docker daemon、`up` 同时支持 `--wait` 和 `--wait-timeout` 的 Compose，以及 Git 或解压好的 Host 包。同机部署最低 2 核、4 GB 内存、30 GB 可用磁盘，推荐 4 核、8 GB、50 GB；构建缓存和备份另占空间，依据见[首页的服务器要求](../README.md#server-requirements)。ARM 同机还需注册 x86-64 QEMU/binfmt，安装或变更前请机主确认。
+服务器需 Python 3.10+、Docker Engine 26.0+（API 1.45+）、Docker Compose 2.26.0+，以及 Git 或解压好的 Host 包。这些最低版本是同机部署 `volume subpath` 安全挂载的门禁：旧版 Compose 可能忽略子路径并把整个 `host-data` 挂进执行桌面，所以 `doctor`、`init`、`up`、`update` 和 `recover` 会在写入或启动前拒绝旧版本；`--host-only` 不挂子路径，不受这条限制。同机部署最低 2 核、4 GB 内存、30 GB 可用磁盘，推荐 4 核、8 GB、50 GB；构建缓存和备份另占空间，依据见[首页的服务器要求](../README.md#server-requirements)。ARM 同机还需注册 x86-64 QEMU/binfmt，安装或变更前请机主确认。
 
-全新 Ubuntu 24.04 可从系统仓库安装 `docker.io docker-compose-v2 docker-buildx python3 git`，启用 Docker，让部署用户获得使用权限并重新登录。仅 ARM 同机模式还需 `qemu-user-static binfmt-support`，用 `sudo update-binfmts --enable qemu-x86_64` 启用解释器，再跑 `doctor`。已有 Docker 的机器只补缺项；加入 `docker` 组相当于授予主机管理权限。
+全新 Ubuntu 24.04 可从系统仓库安装 `docker.io docker-compose-v2 docker-buildx python3 git`，启用 Docker，让部署用户获得使用权限并重新登录。2026-11 实测它的更新源提供 Docker 29.1、Compose 2.40，满足要求；其他发行版的系统仓库可能较旧，改从 Docker 官方仓库安装 Engine、Buildx 和 Compose v2 插件。仅 ARM 同机模式还需 `qemu-user-static binfmt-support`，用 `sudo update-binfmts --enable qemu-x86_64` 启用解释器，再跑 `doctor`，它会核对版本。已有 Docker 的机器只补缺项；加入 `docker` 组相当于授予主机管理权限。
 
 ## 检查与启动
 

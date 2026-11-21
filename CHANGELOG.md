@@ -4,6 +4,20 @@
 
 Versions start at ProkBot Plus 1.0.0; upstream ProkBot releases are listed at the end. Full notes for each version are in its [release](https://github.com/ferretgeek/prokbot-plus/releases) and the commit history.
 
+## 未发布 / Unreleased
+
+- **手动启动 / Manual start**：Host 说明补充：只恢复数据后手动用 Compose 启动同机部署时，要先运行一次 `data_init.py`，否则 Bot 的电脑因为挂载目录不存在而启动失败（`deploy.py` 会自动做）。The Host README notes that starting a same-machine deployment by hand with Compose after a data-only restore must run `data_init.py` once first, or the Bot's computer fails on a missing mount directory (`deploy.py` does this automatically).
+
+## ProkBot Plus 1.7.0 (2026-11-20)
+
+Bot 在自己的电脑上也能读到 Host 里的记忆文件（[#5](https://github.com/ferretgeek/prokbot-plus/pull/5)，@jun9100 贡献）。只有 Host 变化，要升级 Host；客户端与 1.6.0 相同。Bots can read their Host memory files on their own computer (contributed by @jun9100). Only the Host changes, so upgrade it; the clients are the same as 1.6.0.
+
+- **记忆挂进 Bot 的电脑 / Memory in the Bot's computer**：同机部署时，Bot 的电脑只挂入 `agents`、`user-memory`、`workflows`、`plugins`、`managed-skills` 五个目录，位置是 `/data/runtime/host-data/<目录>`，和原版 Host 的路径一致，原版的路径保护照样生效（Read 读不了 `store.db`）。`agent-transcripts`、`connector-secrets`、`model.env`、`auth.json`、`projects` 和内部令牌不挂入。部署工具只创建缺失的目录并设置它们的属主，不改已有目录；部署、备份和恢复都核对完整的挂载。On same-machine deployments the Bot's computer gets only these five trees, at the original Host path, so the original path protection still applies (Read refuses `store.db`). Transcripts, connector secrets, `model.env`, `auth.json`, projects and internal tokens stay out. The deployment tool creates only missing directories and sets their ownership; deployment, backup and recovery check the complete mount set.
+- **主动用记忆 / Proactive memory**：同机部署时在 Bot 的提示后加一段说明：记忆在哪、需要时主动去读、上一轮读不到要重新检查；加上后超出长度上限就用原提示。`--host-only` 和分开部署的执行电脑不加。The prompt gains a short note on where memory lives, to read it proactively and to recheck earlier failures, falling back to the original prompt if too long. It is not added for `--host-only` or separate execution nodes.
+- **Docker 版本要求 / Docker versions**：同机部署需要 Docker Engine 26.0+（API 1.45+）和 Compose 2.26.0+。旧版 Compose 可能忽略子路径、把整个 `host-data` 挂进去，所以 `doctor`、`init`、`up`、`update`、`recover` 在写入或启动前拒绝旧版本。Ubuntu 24.04 系统仓库的 Docker 29.1 和 Compose 2.40 满足要求，`2.40.3+ds1-0ubuntu1~24.04.1` 这类带发行版后缀的版本号能正确识别；`--host-only` 不受限制。Same-machine deployments need Docker Engine 26.0+ (API 1.45+) and Compose 2.26.0+, because older Compose may ignore subpaths and mount all of `host-data`; those commands refuse older versions before writing or starting. Ubuntu 24.04's own packages qualify, distribution suffixes such as `~24.04.1` are parsed, and `--host-only` is not restricted.
+- **记录 / Records**：官方 iOS 已到 1.27.0（2026-11-20），Windows 和 Mac 仍是 1.2.3。Official iOS is at 1.27.0; Windows and Mac remain at 1.2.3.
+- 在 Ubuntu 24.04（Docker 29.1.3、Compose 2.40.3）的独立测试实例上验收：从 1.6.0 带数据升级，真实模型用 Shell 和 Read 读到升级前存的记忆、Read `store.db` 被拒，备份后恢复成新实例，模拟的旧版 Docker / Compose 被拒绝。Accepted on an isolated Ubuntu 24.04 instance: an upgrade from 1.6.0 with data, a real model reading memory saved before the upgrade with Shell and Read while Read on `store.db` was refused, backup and recovery into a new instance, and simulated old Docker and Compose being refused.
+
 ## ProkBot Plus 1.6.0 (2026-11-20)
 
 Mac 补丁增加 Intel 芯片（实验），首页和文档整理。只有 Mac 补丁有程序变化，Host、Windows、Android、网页版和 iOS 与 1.5.1 相同。Experimental Intel Mac support, plus homepage and documentation work. Only the Mac patch changes; Host, Windows, Android, web and iOS are the same as 1.5.1.

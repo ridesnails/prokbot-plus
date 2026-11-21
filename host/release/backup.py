@@ -24,6 +24,10 @@ OPERATION_LABEL = 'io.prokbot.operation-id'
 MOUNTS = {'host': {'host-data': '/data'}, 'box': {'box-home': '/home/box', 'box-workspace': '/workspace'},
           'gateway': {'gateway-data': '/data'}}
 TOPOLOGIES = (('host',), ('host', 'box'), ('gateway', 'box'))
+DATA_TREES = ('agents', 'user-memory', 'workflows', 'plugins', 'managed-skills')
+DATA_SOURCE_ROOT = PurePosixPath('runtime/host-data')
+BOX_DATA_ROOTS = (PurePosixPath('/data/runtime/host-data'),)
+BOX_DATA_TARGETS = {str(root / tree): tree for root in BOX_DATA_ROOTS for tree in DATA_TREES}
 
 
 def run(*args, **kwargs):
@@ -201,27 +205,100 @@ def inspect_containers(ids):
     # Request only lifecycle metadata, not a container's environment or other configuration.
     labels = label_fields('.Config.Labels', (PROJECT_LABEL, 'com.docker.compose.service', 'com.docker.compose.oneoff'))
     # Docker's resolved mount list omits VolumeOptions.Subpath. Project only the affected
-    # container destinations; never request HostConfig or volume driver options wholesale.
+    # container destinations and source identities; never request HostConfig wholesale.
     # `docker inspect` retries a template that fails on its typed structs against the raw JSON,
     # with missing keys as errors; `.Id` and `index` on a struct fail there, so this template
     # always reads the raw JSON. The daemon omits empty fields from it: HostConfig.Mounts on
     # containers created with Binds (as Compose 2.40 does), VolumeOptions or Subpath on plain
     # volume mounts. `index` reads such a key as empty instead of failing the inspection.
     subpaths = ('[{{$sep := ""}}{{range index .HostConfig "Mounts"}}{{$target := index . "Target"}}'
-                '{{with index . "VolumeOptions"}}{{if index . "Subpath"}}{{$sep}}{{json $target}}{{$sep = ","}}{{end}}{{end}}{{end}}]')
+                '{{$source := index . "Source"}}{{with index . "VolumeOptions"}}'
+                '{{if index . "Subpath"}}{{$sep}}{"Target":{{json $target}},"Source":{{json $source}},'
+                '"Subpath":{{json (index . "Subpath")}}}{{$sep = ","}}{{end}}{{end}}{{end}}]')
     fmt = ('{"Id":{{json .Id}},"Image":{{json .Image}},"State":{"Status":{{json .State.Status}}},'
            '"Labels":'+labels+',"Declared":{{json (index .Config "Volumes")}},"Mounts":{{json .Mounts}},'
-           '"SubpathTargets":'+subpaths+'}')
+           '"SubpathMounts":'+subpaths+'}')
     records = [json.loads(line) for line in output('inspect', '--format', fmt, *ids).splitlines()] if ids else []
     if {c['Id'] for c in records} != set(ids):
         raise ValueError('Container inventory changed during inspection.')
     for record in records:
         record['Mounts'] = record['Mounts'] or []
+        record['SubpathMounts'] = record['SubpathMounts'] or []
     return records
 
 
-def project_services(project, services):
+def _under(path, root):
+    return path == root or path.is_relative_to(root)
+
+
+def _data_source_tree(source, tree):
+    path = PurePosixPath(source or '')
+    expected = DATA_SOURCE_ROOT / tree
+    return path.is_absolute() and path.parts[-len(expected.parts):] == expected.parts
+
+
+def _validate_box_data_mounts(c, project, *, host_data):
+    subpaths = {}
+    for item in c['SubpathMounts']:
+        target, source, subpath = item.get('Target'), item.get('Source'), item.get('Subpath')
+        if not isinstance(target, str) or not isinstance(source, str) or not isinstance(subpath, str):
+            raise ValueError('Box has an invalid subdirectory mount.')
+        if target in subpaths:
+            raise ValueError('Box has duplicate subdirectory mount metadata.')
+        subpaths[target] = (source, subpath)
+
+    by_target = {}
+    for mount in c['Mounts']:
+        target = mount.get('Destination')
+        if target in BOX_DATA_TARGETS:
+            if target in by_target:
+                raise ValueError(f'Box has duplicate data mounts at {target}.')
+            by_target[target] = mount
+
+    for mount in c['Mounts']:
+        target = PurePosixPath(mount.get('Destination', ''))
+        if any(_under(target, root) for root in BOX_DATA_ROOTS) and str(target) not in BOX_DATA_TARGETS:
+            raise ValueError(f'Box has an unapproved Host-data mount at {target}.')
+    for target in subpaths:
+        if target not in BOX_DATA_TARGETS:
+            raise ValueError(f'Box has an unmanaged subdirectory mount at {target}.')
+
+    if not by_target and not subpaths:
+        return
+    if not host_data or set(by_target) != set(BOX_DATA_TARGETS):
+        raise ValueError('Box Host-data mounts are incomplete or do not belong to the local Host volume.')
+
+    identities = {}
+    for target, tree in BOX_DATA_TARGETS.items():
+        mount = by_target[target]
+        if mount.get('RW') is not True:
+            raise ValueError(f'Box Host-data mount at {target} is not writable.')
+        if mount.get('Type') == 'volume':
+            source = project+'_host-data'
+            expected = str(DATA_SOURCE_ROOT / tree)
+            if mount.get('Name') != source or subpaths.get(target) != (source, expected):
+                raise ValueError(f'Box volume mount at {target} does not select the expected Host-data tree.')
+            identities[target] = ('volume', source, expected)
+        elif mount.get('Type') == 'bind':
+            source = mount.get('Source')
+            if target in subpaths or not _data_source_tree(source, tree):
+                raise ValueError(f'Box bind mount at {target} does not select the expected Host-data tree.')
+            identities[target] = ('bind', source)
+        else:
+            raise ValueError(f'Box Host-data mount at {target} has an unsupported type.')
+
+    for root in BOX_DATA_ROOTS:
+        for tree in DATA_TREES:
+            first = identities[str(root / tree)]
+            for other in BOX_DATA_ROOTS:
+                if identities[str(other / tree)] != first:
+                    raise ValueError(f'Box exposes different sources for Host-data tree {tree}.')
+
+
+def project_services(project, services, *, host_data=None):
     result = {}
+    if host_data is None:
+        host_data = project+'_host-data' in project_volumes(project)
     for c in inspect_containers(project_ids(project)):
         labels = c['Labels'] or {}
         service = labels.get('com.docker.compose.service')
@@ -229,12 +306,19 @@ def project_services(project, services):
                 (labels.get('com.docker.compose.oneoff') or '').lower() == 'true'):
             raise ValueError('Unexpected or duplicate project container. Resolve it before operating on the instance.')
         roots = {PurePosixPath(dest) for dest in MOUNTS[service].values()}
-        if any(PurePosixPath(dest) in roots for dest in c['SubpathTargets']):
+        if any(str(PurePosixPath(item.get('Target', ''))) in MOUNTS[service].values() for item in c['SubpathMounts']):
             raise ValueError(f'{service} uses a subdirectory instead of the managed volume root; refusing this operation.')
+        if service == 'box':
+            _validate_box_data_mounts(c, project, host_data=host_data)
+        elif c['SubpathMounts']:
+            raise ValueError(f'{service} has an unmanaged subdirectory mount; refusing this operation.')
+        box_data = set(BOX_DATA_TARGETS) if service == 'box' else set()
         for mount in c['Mounts']:
             dest = PurePosixPath(mount['Destination'])
-            if dest in roots:
+            if dest in roots or str(dest) in box_data:
                 continue
+            if service == 'box' and any(_under(dest, root) for root in BOX_DATA_ROOTS):
+                raise ValueError(f'Unmanaged Host-data mount on box at {dest}; refusing this operation.')
             # Inherited image VOLUMEs may create anonymous scratch space outside managed data.
             anonymous = (mount['Type'] == 'volume' and re.fullmatch(r'[0-9a-f]{64}', mount.get('Name', '')) and
                          str(dest) in (c.get('Declared') or {}))
@@ -274,7 +358,7 @@ def backup(project, destination, image, *, stopped=False):
     services = topology(project, volumes)
     verify_volumes(project, volumes)
     root = local_lineage(project) if 'host' in services else None
-    containers = project_services(project, services)
+    containers = project_services(project, services, host_data=project+'_host-data' in volumes)
     verify_users(volumes, containers)
     if stopped and any(c['State']['Status'] not in ('created', 'exited') for c in containers.values()):
         raise ValueError('Upgrade backup requires all project containers to remain stopped.')
@@ -295,7 +379,7 @@ def backup(project, destination, image, *, stopped=False):
                 os.fsync(target.fileno())
             path.chmod(0o600)
             records.append({'name': volume, 'suffix': volume[len(project)+1:], 'file': path.name, 'sha256': sha(path), 'bytes': path.stat().st_size})
-        current = project_services(project, services)
+        current = project_services(project, services, host_data=project+'_host-data' in volumes)
         expected = {c['Id']: 'paused' if c['Id'] in paused else c['State']['Status'] for c in containers.values()}
         if project_volumes(project) != volumes or {c['Id']: c['State']['Status'] for c in current.values()} != expected:
             raise ValueError('Instance changed during backup; no manifest was published.')

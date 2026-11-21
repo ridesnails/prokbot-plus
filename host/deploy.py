@@ -16,6 +16,9 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 RELEASE = Path(__file__).resolve().parent / 'release'
+MIN_DOCKER_ENGINE = (26, 0, 0)
+MIN_DOCKER_API = (1, 45, 0)
+MIN_COMPOSE = (2, 26, 0)
 sys.path.insert(0, str(RELEASE))
 from platforms import BOX, check_box_execution, docker_platform
 import backup as volume_backup
@@ -44,6 +47,9 @@ def initialise(home, args):
     origin = endpoint(args.public_url or f'http://127.0.0.1:{args.port}')
     if ':' in listen:
         listen = f'[{listen}]'
+    # Only the local Box uses subpath mounts; a Host-only instance keeps working on older Docker.
+    if not args.host_only:
+        check_runtime_versions()
     home.mkdir(mode=0o700, parents=True, exist_ok=True)
     try:
         fd = os.open(home / '.env', os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
@@ -123,7 +129,9 @@ def compose_mounts(service, definition):
         tmpfs = [tmpfs]
     mounts.extend({'type': 'tmpfs', 'target': item.partition(':')[0]} for item in tmpfs)
 
-    roots = volume_backup.MOUNTS[service].values()
+    roots = set(volume_backup.MOUNTS[service].values())
+    data_targets = set(volume_backup.BOX_DATA_TARGETS) if service == 'box' else set()
+    allowed = roots | data_targets
     by_target = {}
     for mount in mounts:
         target = mount.get('target')
@@ -132,8 +140,8 @@ def compose_mounts(service, definition):
         dest = posixpath.normpath('/' + target.lstrip('/'))
         if dest in by_target:
             raise ValueError(f'Duplicate effective Compose mount on {service} at {dest}.')
-        if dest not in roots and (mount.get('type') != 'tmpfs' or
-                any(posixpath.commonpath((root, dest)) in (root, dest) for root in roots)):
+        if dest not in allowed and (mount.get('type') != 'tmpfs' or
+                any(posixpath.commonpath((root, dest)) in (root, dest) for root in allowed)):
             raise ValueError(f'Unmanaged mount on {service} at {dest} would be omitted from the backup.')
         by_target[dest] = mount
     return by_target
@@ -152,6 +160,14 @@ def instance_images(dc, project, services, existing, pinned=None):
                     mount.get('type') != 'volume' or mount.get('source') != suffix or
                     mount.get('target') != dest or mount.get('read_only') or (mount.get('volume') or {}).get('subpath')):
                 raise ValueError(f'Effective Compose mount {s}:{dest} does not select the root of the expected writable project volume.')
+        if s == 'box':
+            for target, tree in volume_backup.BOX_DATA_TARGETS.items():
+                mount = mounts.get(target, {})
+                subpath = (mount.get('volume') or {}).get('subpath')
+                if (mount.get('type') != 'volume' or mount.get('source') != 'host-data' or
+                        mount.get('target') != target or mount.get('read_only') or
+                        subpath != str(volume_backup.DATA_SOURCE_ROOT / tree)):
+                    raise ValueError(f'Effective Compose mount box:{target} does not select the approved Host-data tree.')
     images = {s: config['services'][s]['image'] for s in services}
     if pinned is not None and images != pinned:
         raise ValueError('Effective Compose configuration did not select the requested immutable images.')
@@ -181,7 +197,7 @@ def inventory(project, services, *, new):
     if volumes != expected:
         raise ValueError('Volume set does not match this topology; check the original project, --home and --host-only.')
     volume_backup.verify_volumes(project, volumes)
-    containers = volume_backup.project_services(project, services)
+    containers = volume_backup.project_services(project, services, host_data=f'{project}_host-data' in volumes)
     volume_backup.verify_users(volumes, containers)
     return containers
 
@@ -203,8 +219,68 @@ def startup_images(services, host_id):
     return images
 
 
+def version_tuple(value, label):
+    # Distribution builds add suffixes, e.g. Ubuntu's Compose reports 2.40.3+ds1-0ubuntu1~24.04.1.
+    match = re.match(r'v?(\d+)\.(\d+)(?:\.(\d+))?(?![\d.])', value)
+    if not match:
+        raise ValueError(f'Docker did not report a usable {label} version.')
+    return tuple(int(part or 0) for part in match.groups())
+
+
+def require_version(actual, minimum, label):
+    if actual < minimum:
+        found = '.'.join(map(str, actual))
+        required = '.'.join(map(str, minimum))
+        raise ValueError(f'{label} {found} is too old; version {required} or newer is required for Host-data subpath mounts.')
+
+
+def compose_version():
+    version = run(['docker', 'compose', 'version', '--short'], capture=True).stdout.strip()
+    # Compose labels its own volumes with the plain number, which backup lineage checks expect.
+    return '.'.join(map(str, version_tuple(version, 'Compose')))
+
+
+def check_runtime_versions():
+    try:
+        server = json.loads(run(['docker', 'version', '--format', '{{json .Server}}'], capture=True).stdout)
+    except json.JSONDecodeError as error:
+        raise ValueError('Docker did not report usable Engine version details.') from error
+    if not isinstance(server, dict):
+        raise ValueError('Docker Engine is unavailable; start it before configuring Host data mounts.')
+    engine = server.get('Version')
+    api = server.get('ApiVersion')
+    if not isinstance(engine, str) or not isinstance(api, str):
+        raise ValueError('Docker did not report both Engine and API versions.')
+    engine_version = version_tuple(engine, 'Engine')
+    api_version = version_tuple(api, 'API')
+    compose = compose_version()
+    compose_number = version_tuple(compose, 'Compose')
+    require_version(engine_version, MIN_DOCKER_ENGINE, 'Docker Engine')
+    require_version(api_version, MIN_DOCKER_API, 'Docker API')
+    require_version(compose_number, MIN_COMPOSE, 'Docker Compose')
+    return {'dockerEngineVersion': engine, 'dockerApiVersion': api, 'composeVersion': compose}
+
+
+def ensure_host_data(project, image):
+    name = project+'_host-data'
+    if name not in set(volume_backup.output('volume', 'ls', '-q').splitlines()):
+        run(['docker', 'volume', 'create',
+             '--label', f'{volume_backup.PROJECT_LABEL}={project}',
+             '--label', f'{volume_backup.VOLUME_LABEL}=host-data',
+             '--label', f'{volume_backup.VERSION_LABEL}={compose_version()}',
+             name], capture=True)
+    labels = volume_backup.volume_labels(name)
+    if labels.get(volume_backup.PROJECT_LABEL) != project or labels.get(volume_backup.VOLUME_LABEL) != 'host-data':
+        raise ValueError('The Host data volume does not belong to the selected project.')
+    run(['docker', 'run', '--rm', '--pull=never', '--network', 'none', '--read-only', '--user', '0:0',
+         '--entrypoint', 'python3', '--mount', f'type=volume,src={name},dst=/data,volume-nocopy', image,
+         '/opt/grokbot/release/data_init.py', '/data/runtime/host-data'])
+
+
 def up_and_wait(dc, project, services, images, *, existing):
     instance_images(dc, project, services, existing, pinned=images)
+    if 'box' in services:
+        ensure_host_data(project, images['host'])
     run(dc + ['up', '-d', '--pull', 'never', '--wait', '--wait-timeout', '180'], env=volume_policy(existing, images))
     current = inventory(project, services, new=False)
     if (set(current) != set(services) or any(c['State']['Status'] != 'running' for c in current.values()) or
@@ -456,7 +532,7 @@ def main(argv=None):
         report = {'ok': False, 'project': args.project, 'existingConfig': (home / '.env').is_file()}
         try:
             platform = docker_platform()
-            report.update(hostPlatform=platform, composeVersion=run(['docker', 'compose', 'version', '--short'], capture=True).stdout.strip(),
+            report.update(hostPlatform=platform, **({} if args.host_only else check_runtime_versions()),
                           desktop='remote' if args.host_only else 'native' if platform == BOX['platform'] else 'emulated-amd64',
                           existingVolumes=sorted(volume_backup.project_volumes(args.project)), resources=daemon_resources())
             help_text = run(['docker', 'compose', 'up', '--help'], capture=True).stdout
@@ -474,6 +550,8 @@ def main(argv=None):
         if not report['ok']:
             raise SystemExit(1)
         return
+    if args.action in ('up', 'update', 'recover') and not args.host_only:
+        check_runtime_versions()
     dc = compose(args, home)
     if args.action in ('status', 'logs', 'setup-key'):
         return run(dc + {'status': ['ps', '--all'], 'logs': ['logs', '--tail', '100', 'host'],

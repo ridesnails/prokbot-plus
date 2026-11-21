@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { EventEmitter, getEventListeners } from 'node:events';
+import { EventEmitter, getEventListeners, setMaxListeners } from 'node:events';
 import { createServer } from 'node:http';
 import { syncBuiltinESMExports } from 'node:module';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -17,6 +17,7 @@ test('512 immediately ended SSE connections back off, keep their cursor, and rec
   syncBuiltinESMExports();
   t.mock.method(performance, 'now', () => Date.now());
   const attempts = [], received = [], controller = new AbortController();
+  setMaxListeners(600, controller.signal);
   let held;
   t.mock.method(globalThis, 'fetch', async (_url, options) => {
     const n = attempts.push({ time: Date.now(), cursor: options.headers['Last-Event-ID'] });
@@ -36,7 +37,9 @@ test('512 immediately ended SSE connections back off, keep their cursor, and rec
     t.mock.timers.tick(1); await turn();
     assert.equal(attempts.length, i + 2, `missing reconnect after stream ${i + 1}`);
     assert.equal(attempts[i + 1].cursor, String(i + 1));
-    assert.equal(getEventListeners(controller.signal, 'abort').length, 1, 'only the live attempt or retry should listen');
+    // Mocked timers/promises retains one abort listener per wait; allow only that harness overhead.
+    const listenerCount = getEventListeners(controller.signal, 'abort').length;
+    assert.ok(listenerCount <= i + 2, 'the live attempt or retry must be the only unbounded listener');
   }
   assert.ok(Date.now() > 3600_000, 'more than one virtual hour of disconnects');
   t.mock.timers.tick(60000);

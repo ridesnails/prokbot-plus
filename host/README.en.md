@@ -2,7 +2,7 @@
 
 [简体中文](README.md)
 
-A self-hosted Grok Bot server. The Host builds on Linux amd64 / arm64; the official execution desktop is amd64 only, so an ARM machine pairs with a separate amd64 node or emulates it (experimental). Requires Python 3.10+ and Docker Compose v2.
+A self-hosted Grok Bot server. The Host builds on Linux amd64 / arm64; the official execution desktop is amd64 only, so an ARM machine pairs with a separate amd64 node or emulates it (experimental). Requires Python 3.10+, Docker Engine 26.0+ (API 1.45+) and Docker Compose 2.26.0+.
 
 See the [deployment guide](../docs/AI-INSTALL.en.md) for the full steps and the [technical documentation](../docs/ARCHITECTURE.en.md) for how it works.
 
@@ -40,6 +40,7 @@ python3 deploy.py backup < /dev/null
 - A single-machine deployment backs up `host-data`, `box-home` and `box-workspace`; a standalone Host has only `host-data`, and the execution node backs up `gateway-data` and the two desktop volumes separately.
 - A backup holds only volume archives and a checksum manifest, **not images, the instance's `.env` or the host system**. Volumes hold pairing identities, model keys, chats and workspace files; keep backups private.
 - A backup pauses running containers and restores their state afterwards. `update` builds the candidate first, then stops the old services and backs up. A split deployment is not an atomic snapshot across machines; stop writes on both sides.
+- A single-machine Box mounts only the five protected data trees `agents`, `user-memory`, `workflows`, `plugins` and `managed-skills`, and only below `/data/runtime/host-data/<tree>`. `agent-transcripts`, `connector-secrets`, `model.env`, `auth.json`, `projects` and internal tokens are never exposed to Box; the databases inside `agents/<id>/` are visible to the Bot's Shell but refused to the Read tool, as in the official same-machine setup. For a same-machine deployment, the tool requires Docker Engine 26.0+, API 1.45+ and Compose 2.26.0+ before writing or starting the configuration (`--host-only` does not); data initialization changes ownership and mode only on directories it creates, never existing top-level trees. Deployment, backup and recovery validate the complete mount set.
 
 **Recover into a new instance**: keep the volume backup, the original `.env`, the matching code revision and the images separately; `serviceImages` in the manifest records full image IDs, and the target Docker must already have those images. First confirm that the original instance and any copy of its identity elsewhere are stopped, and never run `down -v` on the original project. The example below is a single-machine loopback setup; replace the directory and project name. To keep existing pairings working, recreate the original address with `--listen`, `--port` and `--public-url` on `init`. A standalone Host adds `--host-only` before `init`.
 
@@ -51,7 +52,11 @@ python3 deploy.py --home "$HOME/grokbot-restored" status < /dev/null
 
 `recover` checks the volumes, project name, topology and local image IDs, unpacks only into the new project and starts it with the recorded images only, without building, pulling or touching the original volumes. Afterwards, read old chats and files back with an original device. If startup fails, the new project's volumes are kept and the original instance is not restarted automatically.
 
-If an old manifest lacks complete `serviceImages`, or the exact images are not on this machine, the instance cannot be brought back automatically; do not guess a version from a `:local` tag. To restore data only, use `python3 release/backup.py restore --project grokbot-data-only --directory /path/to/backup --image <verified image ID> < /dev/null`; it starts nothing, and a standalone execution node uses the same entry point.
+If an old manifest lacks complete `serviceImages`, or the exact images are not on this machine, the instance cannot be brought back automatically; do not guess a version from a `:local` tag. To restore data only, use `python3 release/backup.py restore --project grokbot-data-only --directory /path/to/backup --image <verified image ID> < /dev/null`; it starts nothing, and a standalone execution node uses the same entry point. To start a same-machine deployment by hand with Compose afterwards, run the command below once before `up -d`. It creates the directories the Bot's computer mounts (only where missing); without it the Bot's computer fails to start because a mount directory is missing. `deploy.py` does this automatically in `up`, `update` and `recover`.
+
+```sh
+docker compose --env-file <instance directory>/.env -p <project> -f release/compose.yaml run --rm --no-deps --user 0:0 --entrypoint python3 host /opt/grokbot/release/data_init.py /data/runtime/host-data < /dev/null
+```
 
 On one Docker daemon, the deployment tool uses locks so that a project is not changed concurrently and a recovered copy does not go online twice. Different daemons share no locks; the operator makes sure each identity runs only once. A crash can leave a lock behind: check the services and running operations first, and do not treat removing locks as a routine step. A project whose name ends in `_restore-in-progress` is an unfinished recovery; do not start it, and retry with another empty project.
 

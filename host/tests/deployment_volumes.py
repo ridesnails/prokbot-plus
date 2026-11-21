@@ -16,6 +16,7 @@ HOST = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(HOST))
 import deploy
 import backup
+import data_init
 
 PROJECT = 'demo'
 HOST_TAG = 'grokbot-host:local'
@@ -25,6 +26,7 @@ NEW = 'sha256:' + '2' * 64
 BOX = deploy.BOX['configDigest']
 MOUNTS = {'host': {'host-data': '/data'}, 'box': {'box-home': '/home/box', 'box-workspace': '/workspace'},
           'gateway': {'gateway-data': '/data'}}
+DATA_TARGETS = backup.BOX_DATA_TARGETS
 
 
 class Engine:
@@ -131,7 +133,9 @@ class Engine:
                     self.error(cmd)
             return '\n'.join(json.dumps({'Id': c['Id'], 'State': c['State'], 'Image': c['Image'],
                                           'Labels': c['Config']['Labels'], 'Mounts': c['Mounts'],
-                                          'SubpathTargets': [m['Target'] for m in c.get('HostConfig', {}).get('Mounts') or []
+                                          'SubpathMounts': [{'Target': m['Target'], 'Source': m.get('Source'),
+                                                             'Subpath': m['VolumeOptions']['Subpath']}
+                                                            for m in c.get('HostConfig', {}).get('Mounts') or []
                                                             if (m.get('VolumeOptions') or {}).get('Subpath')]
                                           if 'index .HostConfig "Mounts"' in fmt else []}) for c in items)
         if cmd[0] in ('pause', 'unpause', 'stop', 'start'):
@@ -140,8 +144,7 @@ class Engine:
             c['State'].update(Status=status, Paused=status == 'paused')
             return cmd[-1]
         if cmd[0] == 'run':
-            if '--entrypoint' not in cmd or cmd[cmd.index('--entrypoint')+1] != 'tar':
-                raise AssertionError(cmd)
+            entrypoint = cmd[cmd.index('--entrypoint')+1] if '--entrypoint' in cmd else None
             if '--mount' in cmd:
                 mount = dict(item.split('=', 1) for item in cmd[cmd.index('--mount')+1].split(',') if '=' in item)
                 name = mount.get('src') or mount['source']
@@ -149,6 +152,14 @@ class Engine:
                 name = cmd[cmd.index('-v')+1].split(':')[0]
             directory = self.volume(name)
             self.assert_helper_is_local(cmd)
+            if entrypoint == 'python3':
+                assert any(str(arg).endswith('/release/data_init.py') for arg in cmd)
+                data_init.initialise(directory/'runtime/host-data', trusted_root=directory,
+                                     uid=os.getuid() if os.name == 'posix' else data_init.UID,
+                                     gid=os.getgid() if os.name == 'posix' else data_init.GID)
+                return ''
+            if entrypoint != 'tar':
+                raise AssertionError(cmd)
             flags = cmd.index('-czf' if '-czf' in cmd else '-xzf')
             tar_args = cmd[flags:]
             tar_args[tar_args.index('-C')+1] = str(directory)
@@ -167,15 +178,26 @@ class Engine:
         if cmd[:2] == ['image', 'rm']:
             del self.images[cmd[-1]]
             return ''
+        if cmd[:2] == ['version', '--format']:
+            return json.dumps({'Version': '29.1.2', 'ApiVersion': '1.52'})
         if cmd[0] == 'compose':
+            if 'version' in cmd:
+                return '2.40.3'
             project = cmd[cmd.index('-p')+1]
             modes = ('host',) if any(str(p).endswith('compose.host.yaml') for p in cmd) else ('host', 'box')
             env = kw.get('env') or {}
             external = env.get('PROKBOT_EXISTING_VOLUMES') == 'true'
             refs = {'host': env.get('GROKBOT_HOST_IMAGE', HOST_TAG), 'box': env.get('GROKBOT_BOX_IMAGE', BOX_TAG)}
             if 'config' in cmd:
-                return json.dumps({'services': {s: {'image': refs[s],
-                    'volumes': [{'type': 'volume', 'source': n, 'target': t} for n, t in MOUNTS[s].items()]} for s in modes},
+                services = {}
+                for s in modes:
+                    volumes = [{'type': 'volume', 'source': n, 'target': t} for n, t in MOUNTS[s].items()]
+                    if s == 'box':
+                        volumes.extend({'type': 'volume', 'source': 'host-data', 'target': target,
+                                        'volume': {'subpath': str(backup.DATA_SOURCE_ROOT/tree)}}
+                                       for target, tree in DATA_TARGETS.items())
+                    services[s] = {'image': refs[s], 'volumes': volumes}
+                return json.dumps({'services': services,
                     'volumes': {n: {'name': project+'_'+n, 'external': external} for s in modes for n in MOUNTS[s]}})
             if 'ps' in cmd:
                 return '\n'.join(i for i in self.ids(project) if cmd[-1] not in MOUNTS or i == project+'-'+cmd[-1])
@@ -189,12 +211,21 @@ class Engine:
                     self.error(cmd)
                 for s in modes:
                     mounts = []
+                    configured = []
                     for suffix, target in MOUNTS[s].items():
                         name = project + '_' + suffix
                         self.volume(name, {'com.docker.compose.project': project, 'com.docker.compose.volume': suffix,
                                            'com.docker.compose.version': '2.40.3'})
                         mounts.append({'Type': 'volume', 'Name': name, 'Destination': target, 'RW': True})
-                    self.container(s, project, mounts, self.images.get(refs[s], refs[s]))
+                    if s == 'box':
+                        for target, tree in DATA_TARGETS.items():
+                            name = project+'_host-data'
+                            subpath = str(backup.DATA_SOURCE_ROOT/tree)
+                            mounts.append({'Type': 'volume', 'Name': name, 'Destination': target, 'RW': True})
+                            configured.append({'Type': 'volume', 'Source': name, 'Target': target,
+                                               'VolumeOptions': {'Subpath': subpath}})
+                    cid = self.container(s, project, mounts, self.images.get(refs[s], refs[s]))
+                    self.containers[cid]['HostConfig'] = {'Mounts': configured}
                 if self.unhealthy:
                     (self.root / (project + '_host-data') / 'partial-migration').touch()
                     self.error(cmd)
@@ -242,6 +273,22 @@ class VolumeTests(unittest.TestCase):
 
     def restored(self, project, suffix):
         return self.e.root / (project + '_' + suffix)
+
+    def add_box_data_mounts(self, *, bind=False):
+        container = self.e.containers[PROJECT+'-box']
+        configured = []
+        for target, tree in DATA_TARGETS.items():
+            if bind:
+                container['Mounts'].append({'Type': 'bind',
+                    'Source': f'/srv/prokbot/runtime/host-data/{tree}', 'Destination': target, 'RW': True})
+            else:
+                container['Mounts'].append({'Type': 'volume', 'Name': PROJECT+'_host-data',
+                                            'Destination': target, 'RW': True})
+                configured.append({'Type': 'volume', 'Source': PROJECT+'_host-data', 'Target': target,
+                                   'VolumeOptions': {'Subpath': str(backup.DATA_SOURCE_ROOT/tree)}})
+        if configured:
+            container['HostConfig'] = {'Mounts': configured}
+        return container
 
     def test_round_trip_preserves_three_volumes_without_starting_a_service(self):
         self.snapshot()
@@ -394,6 +441,61 @@ class VolumeTests(unittest.TestCase):
         manifest = json.loads((self.source / 'manifest.json').read_text())
         self.assertEqual(len(manifest['volumes']), 3)
         self.assertEqual({c['State']['Status'] for c in self.e.containers.values()}, {'running'})
+
+    def test_box_gets_only_the_five_parent_data_trees_and_host_data_is_archived_once(self):
+        self.e.stack()
+        self.add_box_data_mounts()
+        services = backup.project_services(PROJECT, ('host', 'box'), host_data=True)
+        self.assertEqual(set(services), {'host', 'box'})
+        backup.backup(PROJECT, self.source, HOST_TAG)
+        manifest = json.loads((self.source/'manifest.json').read_text())
+        self.assertEqual([item['suffix'] for item in manifest['volumes']], ['box-home', 'box-workspace', 'host-data'])
+        self.assertNotIn('connector-secrets', backup.BOX_DATA_TARGETS)
+        self.assertNotIn('projects', backup.DATA_TREES)
+        self.assertEqual(len(backup.BOX_DATA_TARGETS), 5)
+
+    def test_fnOS_style_box_bind_tree_mounts_are_accepted(self):
+        self.e.stack()
+        self.add_box_data_mounts(bind=True)
+        services = backup.project_services(PROJECT, ('host', 'box'), host_data=True)
+        self.assertEqual(set(services), {'host', 'box'})
+        for tree in backup.DATA_TREES:
+            sources = {next(m['Source'] for m in services['box']['Mounts']
+                            if m['Destination'] == str(root/tree)) for root in backup.BOX_DATA_ROOTS}
+            self.assertEqual(len(sources), 1)
+
+    def test_partial_extra_wrong_and_read_only_box_data_mounts_are_rejected(self):
+        self.e.stack()
+        self.add_box_data_mounts()
+        box = self.e.containers[PROJECT+'-box']
+        original = box['Mounts']
+        with self.subTest('partial'):
+            box['Mounts'] = original[:-1]
+            with self.assertRaisesRegex(ValueError, 'incomplete'):
+                backup.project_services(PROJECT, ('host', 'box'), host_data=True)
+        box['Mounts'] = [dict(item) for item in original]
+        for name in ('connector-secrets', 'agent-transcripts'):
+            with self.subTest('sensitive-extra', name=name):
+                box['Mounts'] = [dict(item) for item in original]
+                box['Mounts'].append({'Type': 'bind', 'Source': f'/srv/prokbot/runtime/host-data/{name}',
+                                      'Destination': f'/data/runtime/host-data/{name}', 'RW': True})
+                with self.assertRaisesRegex(ValueError, 'unapproved'):
+                    backup.project_services(PROJECT, ('host', 'box'), host_data=True)
+        box['Mounts'] = [dict(item) for item in original]
+        with self.subTest('wrong-source'):
+            box['Mounts'][2]['Name'] = 'another_host-data'
+            with self.assertRaisesRegex(ValueError, 'expected Host-data tree'):
+                backup.project_services(PROJECT, ('host', 'box'), host_data=True)
+        box['Mounts'] = [dict(item) for item in original]
+        with self.subTest('read-only'):
+            next(item for item in box['Mounts'] if item['Destination'] == '/data/runtime/host-data/agents')['RW'] = False
+            with self.assertRaisesRegex(ValueError, 'not writable'):
+                backup.project_services(PROJECT, ('host', 'box'), host_data=True)
+        box['Mounts'] = [dict(item) for item in original]
+        with self.subTest('wrong-subpath'):
+            box['HostConfig']['Mounts'][0]['VolumeOptions']['Subpath'] = 'runtime/host-data/connector-secrets'
+            with self.assertRaisesRegex(ValueError, 'expected Host-data tree'):
+                backup.project_services(PROJECT, ('host', 'box'), host_data=True)
 
     def test_backup_does_not_unpause_prepaused_or_start_stopped_services(self):
         self.e.stack()

@@ -106,7 +106,7 @@ def fixture(directory, mode='x86-local', number=1, after=False, synthetic=True, 
 
 class BenchmarkTests(unittest.TestCase):
     def setUp(self):
-        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup); self.root = Path(temp.name)
+        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup); self.root = Path(temp.name).resolve()
 
     def check(self, mutate=None, **kw):
         return evidence.inspect_run(fixture(self.root / 'run', mutate=mutate, **kw))

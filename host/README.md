@@ -2,7 +2,7 @@
 
 [English](README.en.md)
 
-自建 Grok Bot 服务端。Host 可在 Linux amd64 / arm64 上构建；官方执行桌面只有 amd64，ARM 机器可以接一台独立的 amd64 节点，或同机模拟（实验）。需要 Python 3.10+ 和 Docker Compose v2。
+自建 Grok Bot 服务端。Host 可在 Linux amd64 / arm64 上构建；官方执行桌面只有 amd64，ARM 机器可以接一台独立的 amd64 节点，或同机模拟（实验）。需要 Python 3.10+、Docker Engine 26.0+（API 1.45+）和 Docker Compose 2.26.0+。
 
 完整的部署步骤见[部署手册](../docs/AI-INSTALL.md)，实现原理见[技术文档](../docs/ARCHITECTURE.md)。
 
@@ -40,6 +40,7 @@ python3 deploy.py backup < /dev/null
 - 同机部署备份 `host-data`、`box-home`、`box-workspace`；独立 Host 只有 `host-data`，执行节点要单独备份 `gateway-data` 和两个桌面卷。
 - 备份目录只含卷归档和校验清单，**不含镜像、实例目录的 `.env` 和宿主机系统**。卷里有配对身份、模型 Key、对话和工作区文件，备份不要公开。
 - 备份会暂停正在运行的容器，结束后恢复。`update` 先构建候选，再停止旧服务并备份。分机部署不是跨主机原子快照，要协调两端停止写入。
+- 同机 Box 只挂载 `agents`、`user-memory`、`workflows`、`plugins`、`managed-skills` 五棵受保护数据目录，并且只挂到 `/data/runtime/host-data/<目录>`。`agent-transcripts`、`connector-secrets`、`model.env`、`auth.json`、`projects` 和内部令牌都不会暴露给 Box；`agents/<id>/` 里的数据库 Bot 的 Shell 看得到，Read 工具读不了，和官方同机运行时一样。同机部署时，部署工具在写入或启动前要求 Docker Engine 26.0+、API 1.45+ 和 Compose 2.26.0+（`--host-only` 不要求）；数据初始化只设置新建目录的属主和权限，不改已有顶层目录。部署、备份和恢复都会核对完整挂载集合。
 
 **恢复成一个新实例**：分开保管卷备份、原 `.env`、对应代码版本和镜像；清单的 `serviceImages` 记录完整镜像 ID，目标 Docker 必须已有这些镜像。先确认原实例及其他机器上的同一身份都已停机，不要对原项目运行 `down -v`。以下是回环地址的同机示例，目录和项目名按实际替换；要让原有配对继续可用，用 `init` 的 `--listen`、`--port`、`--public-url` 重现原地址。独立 Host 在 `init` 前加 `--host-only`。
 
@@ -51,7 +52,11 @@ python3 deploy.py --home "$HOME/grokbot-restored" status < /dev/null
 
 `recover` 校验卷、项目名、拓扑和本地镜像 ID，只往新项目解包，启动时只用记录的镜像，不构建、不拉取、不改原卷。启动后用原设备读回旧对话和文件。启动失败时新项目的卷保留，原实例不会自动重启。
 
-旧清单缺少完整的 `serviceImages`，或精确镜像不在本机时，不能自动恢复上线，也不要用 `:local` 标签猜版本。只恢复数据用 `python3 release/backup.py restore --project grokbot-data-only --directory /path/to/backup --image <已核实的镜像ID> < /dev/null`，它不启动服务，独立执行节点也用这个入口。
+旧清单缺少完整的 `serviceImages`，或精确镜像不在本机时，不能自动恢复上线，也不要用 `:local` 标签猜版本。只恢复数据用 `python3 release/backup.py restore --project grokbot-data-only --directory /path/to/backup --image <已核实的镜像ID> < /dev/null`，它不启动服务，独立执行节点也用这个入口。之后要手动用 Compose 启动同机部署时，先在 `up -d` 前运行一次下面的命令，创建 Bot 的电脑要挂载的目录（只建缺失的），否则 Bot 的电脑因为挂载目录不存在而启动失败；`deploy.py` 的 `up`、`update`、`recover` 会自动做这一步。
+
+```sh
+docker compose --env-file <实例目录>/.env -p <项目名> -f release/compose.yaml run --rm --no-deps --user 0:0 --entrypoint python3 host /opt/grokbot/release/data_init.py /data/runtime/host-data < /dev/null
+```
 
 同一个 Docker daemon 上，部署工具用锁防止并发修改同一项目、同源恢复副本重复上线；不同 daemon 之间不共享锁，由操作者确认同一身份只运行一份。崩溃后可能留锁，先核实服务和操作进程，不要把删锁当成常规步骤。名字带 `_restore-in-progress` 的项目是未完成的恢复，不能启动，换一个空项目重试。
 

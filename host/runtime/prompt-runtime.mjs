@@ -2,8 +2,21 @@ import { join } from 'node:path';
 import { readJson, writePrivate } from '../server/storage.mjs';
 import { promptDigest, promptId, promptRoles, validatePrompt } from '../server/prompt-settings.mjs';
 
+function memoryAccessDirective(memoryRoot) {
+  const root = memoryRoot.replace(/\/+$/, '') || '/';
+  return [
+    `Memory access is configured for this turn: agent memory is mounted at ${root}/agents and shared user memory at ${root}/user-memory.`,
+    'Use memory proactively whenever it can affect the answer, without waiting for the user to ask. The normal Memory sections may already include profile and recent facts; when you need older or omitted facts, inspect the corresponding files with Read or Shell on your own computer.',
+    'Do not repeat an earlier turn\'s "not mounted" or "not readable" result without rechecking in the current turn.',
+    'A missing monthly log means that no file has been recorded for that month yet, not that the entire memory volume is unavailable.',
+  ].join(' ');
+}
+
 /** Only base instructions are catalogued. Profile, memory, skills and user content stay in the original assembler. */
-export async function installLocalPromptPolicy(directory, library, { pollMs = 1000, revision = 'local' } = {}) {
+export async function installLocalPromptPolicy(directory, library, {
+  pollMs = 1000, revision = 'local', memoryRoot = process.env.SAND_DATA_ROOT ?? '/data/runtime/host-data',
+  memoryMounts = process.env.GROKBOT_HOST_MEMORY_MOUNTS === '1',
+} = {}) {
   const settingsPath = join(directory, 'prompt-settings.json'), catalogPath = join(directory, 'prompt-catalog.json');
   let settings = { version: 1, entries: {} }, catalog = await readJson(catalogPath, { version: 1, entries: [] }), tail = Promise.resolve(), reading = false;
   let stopped = false;
@@ -54,8 +67,16 @@ export async function installLocalPromptPolicy(directory, library, { pollMs = 10
       const render = (role, original) => {
         id = observe(role, original); if (!id) return original;
         const selected = frozen[id]?.revisions?.at(-1)?.content;
-        if (selected === undefined) return original;
-        try { return validatePrompt(selected); } catch { return original; }
+        let rendered = original;
+        if (selected !== undefined) {
+          try { rendered = validatePrompt(selected); } catch { rendered = original; }
+        }
+        if (role !== 'parent' || !memoryMounts) return rendered;
+        try {
+          return validatePrompt(`${rendered.trimEnd()}\n\n${memoryAccessDirective(memoryRoot)}`);
+        } catch {
+          return rendered;
+        }
       };
       render.recordAssembly = value => { assembly = value; publish(); };
       render.recordTools = values => {

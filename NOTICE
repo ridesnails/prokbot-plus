@@ -159,6 +159,20 @@ Modifications made in ProkBot Plus (2026-11-07 to 2026-11-20)
     files were removed (host/source-files.json, an unreferenced plugin
     example, an outdated Android browser test and old screenshots).
 
+13. Host memory visibility in the execution desktop. host/release/compose.yaml
+    mounts the five protected data trees agents, user-memory, workflows,
+    plugins and managed-skills only below the protected
+    /data/runtime/host-data root; agent-transcripts and other Host-only data
+    stay out of Box. host/release/data_init.py changes ownership and mode only
+    on directories it creates. host/release/backup.py validates exact mounts.
+    host/runtime/prompt-runtime.mjs preserves proactive memory retrieval, adds
+    its live-access reminder only for the local Box topology and falls back to
+    the original prompt when the extra text exceeds the size limit. Same-machine
+    deployment refuses Docker Engine below 26.0, API 1.45 or Compose 2.26.0
+    before writing or starting a subpath-mount configuration; distribution
+    version suffixes are accepted and --host-only is not gated. Contributed by
+    @jun9100 (GitHub pull request #5). Clients are unchanged.
+
 Third-party components
 ----------------------
 
