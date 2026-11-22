@@ -7,6 +7,8 @@ Versions start at ProkBot Plus 1.0.0; upstream ProkBot releases are listed at th
 ## 未发布 / Unreleased
 
 - **手动启动 / Manual start**：Host 说明补充：只恢复数据后手动用 Compose 启动同机部署时，要先运行一次 `data_init.py`，否则 Bot 的电脑因为挂载目录不存在而启动失败（`deploy.py` 会自动做）。The Host README notes that starting a same-machine deployment by hand with Compose after a data-only restore must run `data_init.py` once first, or the Bot's computer fails on a missing mount directory (`deploy.py` does this automatically).
+- **Intel Mac 实测 / Intel Mac confirmed**：提问者在 Intel Mac（macOS 15.7.7）上实测 1.6.0：自动识别芯片、生成、启动、配对和多轮对话都正常（[#6](https://github.com/ferretgeek/prokbot-plus/issues/6)），文档不再写「未测试」；本机图形界面控制和 Tailcat 还没在 Intel Mac 上测过。The requester confirmed 1.6.0 on an Intel Mac (macOS 15.7.7): chip detection, building, launch, pairing and multi-turn chat work; local graphical control and Tailcat remain untried there.
+- **Tailcat 开关 / Tailcat switch**：Windows 和 Mac 说明、部署手册写明：连接页的 Tailcat 开关只在粘贴「远程访问」里的连接链接时打开，填局域网或 HTTPS 地址时保持关闭（来自 #6 的反馈）。The Windows and Mac READMEs and the deployment guide say to turn on the connect screen's Tailcat switch only for a connection link from Remote access, and leave it off for a LAN or HTTPS address (feedback from #6).
 
 ## ProkBot Plus 1.7.0 (2026-11-20)
 

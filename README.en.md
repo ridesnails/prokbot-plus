@@ -83,7 +83,7 @@ You also need a model API with tool calling (and image input, if the Bot should 
 | --- | --- | --- |
 | Windows x64 | [1.2.3](https://api2.cursor.sh/updates/api/download/stable/win32-x64-user/sand) (not supported by this patch) | **1.1.0** (recommended); 0.71.2 if it does not work |
 | macOS ARM64 | [1.2.3](https://api2.cursor.sh/updates/api/download/stable/darwin-arm64/sand) | 0.71.2 (not yet adapted to 1.2.3; not tested on a Mac) |
-| macOS Intel (x64) | [1.2.3](https://api2.cursor.sh/updates/api/download/stable/darwin-x64/sand) | 0.71.2 (experimental: not yet adapted to 1.2.3; not tested on an Intel Mac) |
+| macOS Intel (x64) | [1.2.3](https://api2.cursor.sh/updates/api/download/stable/darwin-x64/sand) | 0.71.2 (experimental: not yet adapted to 1.2.3; confirmed working by a user on an Intel Mac) |
 | iOS | [1.27.0](https://apps.apple.com/us/app/grok-bot/id6794501026) | 1.16.0 (build 23152; not tested on an iPhone or iPad) |
 | Android 9+ (unofficial) | Does not use the official Android app | App **1.1.0** (build 10100), interface taken from the Windows **1.1.0** installer (recommended; 0.71.2 if it does not work) |
 | Web client (browser, unofficial) | Nothing to install | Interface taken from the Windows **1.1.0** installer (recommended; 0.71.2 if it does not work), built once and uploaded to your Host |
@@ -97,7 +97,7 @@ ProkBot Plus has its own version numbers; see the [latest release](https://githu
 | Windows | Windows 10 / 11 x64 | New in Plus. Portable version or installer, no administrator rights needed. The Bot can run commands on your PC and asks you first. Tested on Windows 11. |
 | Android | Android 9+, system WebView 89+ | Our own app, not the official Android app. Tested on Android 15 / 16 emulators, not on a real phone. |
 | Web client | Current Chrome, Edge, Firefox or Safari | Served by your Host and adapts to phones, tablets and computers; sign in with a pairing code. It works with the Bot's computer only, never your own device. |
-| Mac | Apple Silicon or Intel | Patch from upstream, still on the official 0.71.2; this project has not tested it on a real Mac. Intel support is experimental and untested on an Intel Mac. |
+| Mac | Apple Silicon or Intel | Patch from upstream, still on the official 0.71.2; this project has not tested it on a real Mac. Intel support is experimental; a user has confirmed building, pairing and chatting on an Intel Mac. |
 | iPhone / iPad | Your own decrypted IPA and signing certificate | Patch from upstream; this project has not tested it on a real device. |
 
 <a id="android-client"></a><a id="web-client"></a>

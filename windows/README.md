@@ -24,7 +24,7 @@ node windows/patchers/desktop/patch.mjs
 | `GrokBotLocal-1.1.0-x64-portable.zip` | 便携压缩包，解压后运行 |
 | `GrokBotLocal-1.1.0-x64-Setup.exe` | 按用户安装到 `%LOCALAPPDATA%\Programs\Grok Bot Local`，无需管理员权限 |
 
-打开客户端，填写 Host 地址和 6 位配对码。已有原版安装包、`app-64.7z` 或已安装的原版目录时，用 `--source` 指定，工具按摘要识别版本；`--no-installer` 只生成便携版本。
+打开客户端，填写 Host 地址和 6 位配对码。连接页的 Tailcat 开关只在粘贴 Host 管理页「远程访问」里的连接链接时打开，填局域网或 HTTPS 地址时保持关闭。已有原版安装包、`app-64.7z` 或已安装的原版目录时，用 `--source` 指定，工具按摘要识别版本；`--no-installer` 只生成便携版本。
 
 <p align="center"><img src="../docs/images/windows-connect.png" alt="Windows 客户端首次连接：填写 Host 地址和配对码" width="320"></p>
 
