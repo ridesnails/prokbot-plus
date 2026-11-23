@@ -332,4 +332,4 @@ node --expose-internals windows/tools/inspect-desktop-preload.mjs <preload.cjs> 
 - Android：不支持 Tailcat；排版照官方手机版，但页面内容是桌面版的（设置是「通用 / 电脑 / 更新」等标签页，Bot 的电脑从对话详情打开）；后台通知靠前台服务，部分厂商系统需要允许后台运行；语音只验证到请求送达 Host；只在模拟器上测过。
 - 网页版：只能使用 Host 上的 Bot 电脑；不支持 Tailcat；http 地址下麦克风、语音输入和通知不可用，页面关闭后没有通知；没有在真机浏览器上测试。
 - 原版桌面只有 amd64。单台 ARM 机器同时运行 Host 和模拟桌面的完整部署和性能没有验证。
-- Mac 和 iOS 是上游已有的补丁，本项目没有真机测试；Intel Mac 是本项目移植的实验支持，也没有实测。iOS 需要自备已解密的 IPA 和签名证书。
+- Mac 和 iOS 是上游已有的补丁，本项目没有真机测试；Intel Mac 是本项目移植的实验支持，已有用户在 Intel Mac 上实测生成、配对和对话可用，本机图形控制和 Tailcat 还没人测过。iOS 需要自备已解密的 IPA 和签名证书。
