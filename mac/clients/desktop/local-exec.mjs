@@ -28,6 +28,11 @@ export function loadLocalExecDaemon(file, platform = process.platform) {
   return daemon.exports;
 }
 
+export function machineIdForPlatform(deviceId, platform = process.platform) {
+  const prefix = platform === 'win32' ? 'win' : platform === 'linux' ? 'linux' : 'mac';
+  return `${prefix}-${deviceId}`;
+}
+
 export async function createLocalExec({ payload, profile, config, command, window }) {
   const original = loadLocalExecDaemon(path.join(payload, 'local-exec-daemon/main.cjs'));
   const directory = path.join(profile, 'local-exec');
@@ -40,7 +45,7 @@ export async function createLocalExec({ payload, profile, config, command, windo
   const standingGrantsPath = path.join(directory, 'standing-grants.json');
   let native, codex, closed = false;
   // The Host derives the platform from this prefix; macOS keeps its original form.
-  const machineId = `${process.platform === 'win32' ? 'win' : 'mac'}-${config.deviceId}`;
+  const machineId = machineIdForPlatform(config.deviceId);
   let permission = 'ask', writes = Promise.resolve();
   try { const value = JSON.parse(await readFile(settingsPath, 'utf8')); if (['ask', 'never', 'always'].includes(value.permission)) permission = value.permission; } catch {}
   const serialize = task => { writes = writes.catch(() => {}).then(task); return writes; };

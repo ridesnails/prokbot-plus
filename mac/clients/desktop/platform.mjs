@@ -1,12 +1,14 @@
 // Platform window chrome and shell integration. macOS keeps the original inset
 // traffic lights; Windows uses the original frameless window with native caption
 // buttons drawn by the title-bar overlay, a notification-area icon and a Start menu
-// shortcut that carries the toast identity.
+// shortcut that carries the toast identity; Linux uses the original frameless
+// workspace window with renderer-drawn controls and a standard framed pairing dialog.
 import path from 'node:path';
 import { linkSync, lstatSync, mkdtempSync, rmdirSync, unlinkSync } from 'node:fs';
 import { lstat, readFile } from 'node:fs/promises';
 
 export const isWindows = process.platform === 'win32';
+export const isLinux = process.platform === 'linux';
 export const APP_USER_MODEL_ID = 'dev.grokbot.local';
 export const SHORTCUT_NAME = 'Grok Bot Local.lnk';
 
@@ -31,29 +33,30 @@ export function titleBarOverlay(background, tone = false) {
 }
 
 export function windowChrome(background, platform = process.platform) {
-  return platform === 'win32'
-    ? { frame: false, titleBarStyle: 'hidden', titleBarOverlay: titleBarOverlay(background) }
-    : { frame: true, titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 15 } };
+  if (platform === 'win32') return { frame: false, titleBarStyle: 'hidden', titleBarOverlay: titleBarOverlay(background) };
+  if (platform === 'linux') return { frame: false, titleBarStyle: 'default', autoHideMenuBar: true };
+  return { frame: true, titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 15 } };
 }
 
-/** The pairing window keeps its 42 px drag strip on both platforms. */
+/** The pairing window keeps its 42 px drag strip on macOS/Windows and uses a normal frame on Linux. */
 export function connectWindowChrome(platform = process.platform) {
-  return platform === 'win32'
-    ? { frame: false, titleBarStyle: 'hidden', titleBarOverlay: { color: '#111111', symbolColor: '#FFFFFF', height: 42 } }
-    : { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 15 } };
+  if (platform === 'win32') return { frame: false, titleBarStyle: 'hidden', titleBarOverlay: { color: '#111111', symbolColor: '#FFFFFF', height: 42 } };
+  if (platform === 'linux') return { frame: true, autoHideMenuBar: true };
+  return { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 15 } };
 }
 
-/** Original window RPCs used by the Windows renderer's title bar. */
+/** Original window RPCs used by the Windows and Linux renderer's title bar. */
 export function windowHandlers(win, background, { platform = process.platform, workArea } = {}) {
   let color = background, tone = false;
-  const windows = platform === 'win32';
-  const apply = () => { if (windows && !win.isDestroyed()) win.setTitleBarOverlay(titleBarOverlay(color, tone)); };
+  const customChrome = platform !== 'darwin';
+  const overlay = platform === 'win32';
+  const apply = () => { if (overlay && !win.isDestroyed()) win.setTitleBarOverlay(titleBarOverlay(color, tone)); };
   const state = () => ({ isFullscreen: win.isFullScreen(), isMaximized: win.isMaximized() });
-  if (windows) for (const event of ['maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen'])
+  if (customChrome) for (const event of ['maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen'])
     win.on(event, () => { if (!win.isDestroyed()) win.webContents.send('dune-rpc:main:e:window-state', state()); });
   return {
     setBackground(value) { color = value; apply(); },
-    handlers: windows ? {
+    handlers: customChrome ? {
       getWindowState: state,
       minimizeWindow: () => { win.minimize(); return null; },
       focusWindow: () => { win.show(); win.focus(); return null; },
@@ -114,8 +117,9 @@ export function ensureStartMenuShortcut({ app, shell, execPath = process.execPat
   }
 }
 
-export function createTray({ Tray, Menu, nativeImage, clientRoot, show, quit, text }) {
-  const tray = new Tray(nativeImage.createFromPath(path.join(clientRoot, 'icon.ico')));
+export function createTray({ Tray, Menu, nativeImage, clientRoot, show, quit, text, platform = process.platform }) {
+  const icon = platform === 'win32' ? 'icon.ico' : 'icon.png';
+  const tray = new Tray(nativeImage.createFromPath(path.join(clientRoot, icon)));
   tray.setToolTip('Grok Bot');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: text('打开 Grok Bot', 'Open Grok Bot'), click: show },

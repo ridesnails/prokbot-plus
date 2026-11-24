@@ -118,8 +118,17 @@ static UIViewController *GBTop(void) {
   SecItemDelete((__bridge CFDictionaryRef)GBKeychainQuery());
   [NSUserDefaults.standardUserDefaults removeObjectForKey:GBURLKey];
   [NSUserDefaults.standardUserDefaults removeObjectForKey:@"GrokBotLocal.deviceId"];
+  [NSUserDefaults.standardUserDefaults synchronize];
   if (self.gatewayBundleURL)
     [NSFileManager.defaultManager removeItemAtURL:self.gatewayBundleURL error:nil];
+  NSURL *cachesDir =
+      [NSFileManager.defaultManager URLsForDirectory:NSCachesDirectory
+                                           inDomains:NSUserDomainMask]
+          .firstObject;
+  if (cachesDir) {
+    NSURL *pairedDir = [cachesDir URLByAppendingPathComponent:@"GrokBotPaired" isDirectory:YES];
+    [NSFileManager.defaultManager removeItemAtURL:pairedDir error:nil];
+  }
   self.gatewayBundleURL = nil;
   self.serverURL = nil;
   self.deviceToken = nil;
@@ -424,6 +433,7 @@ static UIViewController *GBTop(void) {
                   GBConnection.shared.deviceToken = token;
                   GBRestoreProfileCache();
                   GBConnection.shared.gatewayBundleURL = bundle;
+                  GBSyncAppIntentCredentials();
                   strong.key.text = @"";
                   [strong dismissViewControllerAnimated:YES
                                              completion:^{

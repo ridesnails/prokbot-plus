@@ -51,6 +51,62 @@ class ReleaseOutput(unittest.TestCase):
         self.refused('Expected thin arm64 executable')
         self.assertEqual(list(self.root.iterdir()), [self.source])
 
+    def test_accepts_pinned_fallback_release_and_enforces_per_release_extensions(self):
+        for rel_dir, expected_pair in (('1.26.0', ('1.26.0', '29388')), ('1.16.0', ('1.16.0', '23152'))):
+            fallback_manifest = MANIFEST.parent / rel_dir / 'manifest.json'
+            self.assertTrue(fallback_manifest.is_file(), f'{rel_dir} fallback manifest must remain pinned')
+            fallback = json.loads(fallback_manifest.read_text(encoding='utf-8'))
+            self.assertEqual((fallback['version'], fallback['build']), expected_pair)
+            self.app_metadata(fallback['version'], fallback['build'])
+            self.refused('Expected thin arm64 executable')
+            self.app_metadata(fallback['version'], fallback['build'] + '9')
+            self.refused('Unsupported app version')
+        sys.path.insert(0, str(PATCHER.parents[1] / 'patchers' / 'ios'))
+        import extensions  # noqa: E402
+        self.assertIn(('1.27.0', '29519'), extensions.EXTENSIONS_BY_RELEASE)
+        self.assertIn(('1.26.0', '29388'), extensions.EXTENSIONS_BY_RELEASE)
+        self.assertIn(('1.16.0', '23152'), extensions.EXTENSIONS_BY_RELEASE)
+        self.assertEqual(extensions.WIDGETS_SCHEME_COUNTS_BY_RELEASE[('1.27.0', '29519')], 2)
+        self.assertEqual(extensions.WIDGETS_SCHEME_COUNTS_BY_RELEASE[('1.26.0', '29388')], 1)
+        self.assertEqual(extensions.WIDGETS_SCHEME_COUNTS_BY_RELEASE[('1.16.0', '23152')], 1)
+        self.assertNotEqual(
+            extensions.EXTENSIONS_BY_RELEASE[('1.27.0', '29519')]['Widgets.appex'][1],
+            extensions.EXTENSIONS_BY_RELEASE[('1.26.0', '29388')]['Widgets.appex'][1],
+        )
+        self.assertNotEqual(
+            extensions.EXTENSIONS_BY_RELEASE[('1.26.0', '29388')]['Widgets.appex'][1],
+            extensions.EXTENSIONS_BY_RELEASE[('1.16.0', '23152')]['Widgets.appex'][1],
+        )
+
+    def test_extensions_rejects_unknown_release(self):
+        sys.path.insert(0, str(PATCHER.parents[1] / 'patchers' / 'ios'))
+        import extensions  # noqa: E402
+        # Unknown releases must fail closed rather than defaulting widget scheme count to 1.
+        with self.assertRaisesRegex(ValueError, 'Unsupported release for extensions'):
+            extensions.prepare_extensions(
+                self.root,
+                'dev.example.app',
+                'group.dev.example.app',
+                lambda _b: [],
+                release=('9.9.9', '99999'),
+            )
+
+    def test_rejects_duplicate_pinned_manifests(self):
+        # Duplicate (version, build) manifests must be rejected by load_manifests().
+        dup_pkg = self.root / 'dup-package'
+        dup_patcher = dup_pkg / 'release' / PATCHER.name
+        dup_patcher.parent.mkdir(parents=True)
+        for name in (PATCHER.name, 'bytepatch.py', 'native_text.py'):
+            shutil.copyfile(PATCHER.with_name(name), dup_patcher.with_name(name))
+        dup_primary = dup_pkg / 'recipes' / 'ios' / 'manifest.json'
+        dup_fallback = dup_pkg / 'recipes' / 'ios' / 'dup' / 'manifest.json'
+        dup_fallback.parent.mkdir(parents=True)
+        pins = json.loads(MANIFEST.read_text(encoding='utf-8'))
+        dup_primary.write_text(json.dumps(pins), encoding='utf-8')
+        dup_fallback.write_text(json.dumps(pins), encoding='utf-8')
+        self.app_metadata(pins['version'], pins['build'])
+        self.refused('Duplicate fixed iOS release', dup_patcher)
+
     def test_metadata_gate_and_help_follow_the_packaged_manifest(self):
         # Copy only the release scripts and manifest into an isolated package. No working
         # IPA, patch recipes or native library are supplied: the binary gate must still fail.
@@ -70,6 +126,13 @@ class ReleaseOutput(unittest.TestCase):
                                             env={**os.environ, 'PYTHONIOENCODING': 'utf-8'})
         self.assertIn('0.0.7 (9001)', help_text)
         self.assertEqual(set(self.root.iterdir()), {package, self.source})
+
+    def test_private_patch_helper_uses_the_packaged_manifest(self):
+        helper = PATCHER.parents[1] / 'patchers' / 'ios' / 'patch-app.py'
+        source = helper.read_text(encoding='utf-8')
+        self.assertIn("ROOT/'recipes/ios/manifest.json'", source)
+        self.assertNotIn("--expect-version", source)
+        self.assertNotIn("--expect-build", source)
 
     def test_invalid_archive_leaves_no_output(self):
         self.source.write_bytes(b'demo, not an archive')

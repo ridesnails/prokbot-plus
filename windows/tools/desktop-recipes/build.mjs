@@ -1,30 +1,39 @@
 #!/usr/bin/env node
-// Maintainer tool: regenerate the Windows desktop recipes from the official installer and
-// the anchored edits in spec.mjs. Every anchor must occur exactly once in its source;
-// unchanged original bytes become copy ranges, so a recipe adds only this project's code.
+// Maintainer tool: regenerate the desktop recipes (Windows x64, macOS arm64, macOS x64,
+// Linux x64, Linux arm64) from the official installer and the anchored edits in spec.mjs.
+// Every anchor must occur exactly once in its source; unchanged original bytes become copy
+// ranges, so a recipe adds only this project's code.
 //
-//   node windows/tools/desktop-recipes/build.mjs [--source <Grok_Bot_<version>_Setup.exe | app-64.7z | 安装目录>] [--check]
+//   node windows/tools/desktop-recipes/build.mjs [--target windows|mac-arm64|mac-x64|linux-x64|linux-arm64] [--source <installer|app|deb>] [--check]
 //
 // Without --source the pinned installer is downloaded and verified like patch.mjs does.
-// --check rebuilds in memory and fails unless the committed recipes are byte-identical.
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+// --check rebuilds in memory and fails unless the committed recipes say the same thing. gzip output
+// differs between zlib builds, so recipes compare decompressed and the manifest pins the committed bytes.
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { gzipSync, constants } from 'node:zlib';
+import { gunzipSync, gzipSync, constants } from 'node:zlib';
 import os from 'node:os';
 import path from 'node:path';
 import { acquireDesktopSource } from '../../../mac/patchers/desktop/download-original.mjs';
 import { applyByteRecipe } from '../../../mac/patchers/desktop/release-recipes.mjs';
 import { unpackOriginal } from '../../patchers/desktop/original.mjs';
-import { SPEC } from './spec.mjs';
+import { SPEC, buildSpec } from './spec.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const windowsRoot = path.resolve(here, '../..');
 const repo = path.resolve(windowsRoot, '..');
-const desktop = path.join(windowsRoot, 'patchers/desktop');
-const recipes = path.join(desktop, 'recipes');
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
+
+const TARGET_DIRS = {
+  windows: path.join(repo, 'windows/patchers/desktop'),
+  'mac-arm64': path.join(repo, 'mac/patchers/desktop'),
+  'mac-x64': path.join(repo, 'mac/patchers/desktop/x64'),
+  'linux-x64': path.join(repo, 'linux/patchers/desktop'),
+  'linux-arm64': path.join(repo, 'linux/patchers/desktop/arm64'),
+};
 
 function unique(source, anchor, label) {
   const needle = Buffer.from(anchor, 'utf8');
@@ -86,9 +95,9 @@ export function buildRecipe(entry, source) {
 }
 
 /** Build every recipe file and the manifest from an extracted original app.asar. */
-export async function buildRecipes(unpacked) {
+export async function buildRecipes(unpacked, spec = SPEC) {
   const files = new Map(), entries = [];
-  const sorted = [...SPEC].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  const sorted = [...spec].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
   for (const [index, entry] of sorted.entries()) {
     const source = entry.source === null ? Buffer.alloc(0) : await readFile(path.join(unpacked, entry.source));
     const { recipe, target, added } = buildRecipe(entry, source);
@@ -105,29 +114,67 @@ export async function buildRecipes(unpacked) {
 async function main() {
   const args = process.argv.slice(2);
   const arg = name => { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : null; };
+  const target = arg('--target') ?? 'windows';
+  const desktop = TARGET_DIRS[target];
+  if (!desktop) throw new Error(`Unknown --target: ${target}`);
+  const recipes = path.join(desktop, 'recipes');
   const supported = JSON.parse(await readFile(path.join(desktop, 'supported.json'), 'utf8'));
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'grokbot-desktop-recipes-'));
+  let mounted = null;
   try {
-    const source = await acquireDesktopSource({ source: arg('--source'), cacheDirectory: path.join(windowsRoot, '.cache'), supported,
-      onDownload: ({ version }) => console.error(`正在下载 Grok Bot ${version} Windows x64…`) });
-    const app = await unpackOriginal(source, temporary, supported);
-    const asarFile = path.join(app, 'resources/app.asar');
-    if (sha(await readFile(asarFile)) !== supported.asarSha256) throw new Error(`Not the pinned Grok Bot ${supported.version} app.asar`);
+    const isMac = target.startsWith('mac-');
+    const isLinux = target.startsWith('linux-');
+    const cacheRoot = isMac ? path.join(repo, 'mac/.cache') : isLinux ? path.join(repo, 'linux/.cache') : path.join(windowsRoot, '.cache');
+    const source = await acquireDesktopSource({ source: arg('--source'), cacheDirectory: cacheRoot, supported,
+      onDownload: ({ version }) => console.error(`正在下载 Grok Bot ${version} (${target})…`) });
+    let asarFile;
+    if (isMac) {
+      let app = source;
+      if (path.extname(source).toLowerCase() === '.dmg') {
+        if (process.platform !== 'darwin') {
+          throw new Error('Mounting a macOS .dmg requires macOS (hdiutil); on Windows/Linux pass --source <path/to/Grok Bot.app> instead.');
+        }
+        mounted = path.join(temporary, 'mount');
+        await mkdir(mounted);
+        execFileSync('hdiutil', ['attach', '-readonly', '-nobrowse', '-mountpoint', mounted, source], { stdio: 'ignore' });
+        app = path.join(mounted, 'Grok Bot.app');
+      }
+      asarFile = path.join(app, 'Contents/Resources/app.asar');
+    } else if (isLinux) {
+      // Loaded here because the Windows, Android and web packages ship without linux/.
+      const { unpackOriginal: unpackLinuxOriginal } = await import('../../../linux/patchers/desktop/deb.mjs');
+      const app = await unpackLinuxOriginal(source, temporary, supported);
+      asarFile = path.join(app, 'resources/app.asar');
+    } else {
+      const app = await unpackOriginal(source, temporary, supported);
+      asarFile = path.join(app, 'resources/app.asar');
+    }
+    if (sha(await readFile(asarFile)) !== supported.asarSha256) throw new Error(`Not the pinned Grok Bot ${supported.version} (${target}) app.asar`);
     const asar = createRequire(path.join(repo, 'mac/patchers/desktop/package.json'))('@electron/asar');
     const unpacked = path.join(temporary, 'app');
     asar.extractAll(asarFile, unpacked);
-    const files = await buildRecipes(unpacked);
+    const files = await buildRecipes(unpacked, buildSpec(target));
     if (args.includes('--check')) {
       const committed = (await readdir(recipes)).sort();
       const stale = [...files.keys()].filter(name => !committed.includes(name)).concat(committed.filter(name => !files.has(name)));
-      for (const [name, bytes] of files) if (committed.includes(name) && !bytes.equals(await readFile(path.join(recipes, name)))) stale.push(name);
-      if (stale.length) throw new Error(`Committed recipes differ from spec.mjs: ${stale.join(', ')}`);
+      const pinned = JSON.parse(await readFile(path.join(recipes, 'manifest.json'), 'utf8'));
+      const unpinned = manifest => JSON.stringify([manifest.schema, manifest.files.map(({ sha256, ...entry }) => entry)]);
+      for (const [name, bytes] of files) {
+        if (!committed.includes(name)) continue;
+        const saved = await readFile(path.join(recipes, name));
+        const same = name === 'manifest.json' ? unpinned(JSON.parse(bytes)) === unpinned(pinned)
+          : gunzipSync(bytes).equals(gunzipSync(saved)) && pinned.files.find(entry => entry.recipe === name)?.sha256 === sha(saved);
+        if (!same) stale.push(name);
+      }
+      if (stale.length) throw new Error(`Committed recipes differ from spec.mjs (${target}): ${stale.join(', ')}`);
     } else {
+      await mkdir(recipes, { recursive: true });
       for (const name of await readdir(recipes)) if (/^\d{3}\.gbp\.gz$|^manifest\.json$/.test(name)) await rm(path.join(recipes, name));
       for (const [name, bytes] of files) await writeFile(path.join(recipes, name), bytes);
     }
-    console.log(JSON.stringify({ version: supported.version, recipes: files.size - 1, checked: args.includes('--check') }));
+    console.log(JSON.stringify({ target, version: supported.version, recipes: files.size - 1, checked: args.includes('--check') }));
   } finally {
+    if (mounted) { try { execFileSync('hdiutil', ['detach', mounted], { stdio: 'ignore' }); } catch {} }
     await rm(temporary, { recursive: true, force: true });
   }
 }

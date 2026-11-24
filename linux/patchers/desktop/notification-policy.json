@@ -1,0 +1,8 @@
+{
+  "source": "dist/electron-main/main-app.cjs",
+  "sourceSha256": "b8bc5474e8eb86ba4842964e2c4efae79fcc1c0862ad1ccbf16cffe166de4228",
+  "sha256": "a6ab52f9a87cff580df62736a6ed6b8fbdfe22cedebd7aa25a3966cca3081852",
+  "byteOffset": 2967236,
+  "byteLength": 4522,
+  "exportName": "kP"
+}

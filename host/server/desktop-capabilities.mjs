@@ -7,7 +7,7 @@ const object = value => value && typeof value === 'object' && !Array.isArray(val
 const validId = value => typeof value === 'string' && value.length > 0 && value.length <= 160;
 const maxResultBytes = 24 * 1024 * 1024;
 // Paired desktop clients announce their OS; machine IDs keep the original mac- form on macOS.
-const desktopPlatforms = { darwin: 'mac', win32: 'win' };
+const desktopPlatforms = { darwin: 'mac', win32: 'win', linux: 'linux' };
 const computerTool = /^(computer_(screenshot|click|move|drag|type|key|scroll|wait|check_permissions|apps|resolve_app|app_state|set_value|app_action)|codex_(start|status|continue|cancel|list))$/;
 
 /** Outbound device channels. A request is never retried after its provider leaves. */

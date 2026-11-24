@@ -126,10 +126,12 @@ export function sseRewriter(rewrite) {
     },
   });
 }
+export const DEFAULT_UPSTREAM_HEADERS_TIMEOUT_MS = 120_000;
+
 export function proxyHttp(
   request,
   response,
-  { target, path, token, rewrite, ticketCookie, transformHtml },
+  { target, path, token, rewrite, ticketCookie, transformHtml, headersTimeoutMs = DEFAULT_UPSTREAM_HEADERS_TIMEOUT_MS },
 ) {
   const transport = target.protocol === "https:" ? https : http;
   const upstream = transport.request(target, {
@@ -144,7 +146,7 @@ export function proxyHttp(
   );
   const timer = setTimeout(
     () => upstream.destroy(new Error("Upstream headers timeout")),
-    30_000,
+    headersTimeoutMs,
   );
   upstream.once("close", () => clearTimeout(timer));
   upstream.on("response", (incoming) => {

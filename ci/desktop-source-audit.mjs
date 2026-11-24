@@ -15,7 +15,7 @@ async function hashFile(file) {
   const h=createHash('sha256'); for await (const block of createReadStream(file)) h.update(block); return h.digest('hex');
 }
 export async function audit(platform,archive,expectedVersion,expectedDigest) {
-  assert.ok(['windows','mac'].includes(platform)); assert.match(expectedVersion,/^\d+\.\d+\.\d+$/);
+  assert.ok(['windows','mac','linux'].includes(platform)); assert.match(expectedVersion,/^\d+\.\d+\.\d+$/);
   assert.match(expectedDigest,/^[a-f0-9]{64}$/); assert.equal(await hashFile(archive),expectedDigest,'ASAR fingerprint mismatch');
   const asar=createRequire(path.join(root,'mac/patchers/desktop/package.json'))('@electron/asar');
   const raw=asar.getRawHeader(archive), names=new Map();
@@ -60,6 +60,6 @@ export async function audit(platform,archive,expectedVersion,expectedDigest) {
 }
 if(process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
   const args=process.argv.slice(2);
-  if(args.length!==4) {console.error('Usage: node ci/desktop-source-audit.mjs windows|mac <stock.asar> <internal-version> <verified-asar-sha256>');process.exitCode=2;}
+  if(args.length!==4) {console.error('Usage: node ci/desktop-source-audit.mjs windows|mac|linux <stock.asar> <internal-version> <verified-asar-sha256>');process.exitCode=2;}
   else audit(...args).then(report=>console.log(JSON.stringify(report,null,2))).catch(err=>{console.error(err.message);process.exitCode=1;});
 }

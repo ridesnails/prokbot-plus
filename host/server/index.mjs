@@ -36,6 +36,8 @@ import { provisionTeachSkill } from '../runtime/host-teach.mjs';
 import { PromptSettings } from './prompt-settings.mjs';
 import { internalHostClient } from './internal-host.mjs';
 import { mobileAppIntentMethods, mobileAppIntentRpc } from './mobile-app-intents.mjs';
+import { clientCompatMethods, handleClientCompatRpc } from './client-compat-api.mjs';
+import { mobileCompatRpc, mobileCompatRpcMethods } from './mobile-rpc-compat.mjs';
 import { adminExtensions } from './admin-extensions.mjs';
 import { recentRouting } from '../runtime/routing-log.mjs';
 import { todayUsage } from "../runtime/usage-ledger.mjs";
@@ -300,7 +302,7 @@ export async function createSelfHostServer(options = {}) {
     }
     throw new HttpError(404, "页面不存在");
   }
-  async function hostStatus() {
+  async function hostStatus({ includeProfile = false } = {}) {
     try {
       const result = await fetch(new URL("/api/listAgents", hostUrl), {
         method: "POST",
@@ -328,6 +330,12 @@ export async function createSelfHostServer(options = {}) {
           .map((item) => ({
             id: item.id,
             name: item.name,
+            // Voice selection reads these local fields only for an authenticated
+            // voice-session request. Regular admin status responses omit them.
+            ...(includeProfile ? {
+              title: typeof item.title === 'string' ? item.title.slice(0, 500) : '',
+              description: typeof item.description === 'string' ? item.description.slice(0, 4000) : '',
+            } : {}),
             isRunning: Boolean(item.isRunning),
             isGroup: Boolean(item.isGroup),
           })),
@@ -336,9 +344,9 @@ export async function createSelfHostServer(options = {}) {
       return { connected: false, agents: [] };
     }
   }
-  async function verifyAgent(agentId) {
+  async function verifyAgent(agentId, { includeProfile = false } = {}) {
     validateAgentId(agentId);
-    const status = await hostStatus();
+    const status = await hostStatus({ includeProfile });
     check(status.connected, 503, "Host 暂不可用，无法读取 Bot 资料库");
     const agent = status.agents.find((item) => item.id === agentId);
     check(agent, 404, "Bot 不存在");
@@ -368,7 +376,7 @@ export async function createSelfHostServer(options = {}) {
     }
     admin(request);
     if (method === 'GET' && path === '/admin/api/voice') return sendJson(response, 200, voiceConfig.publicConfig());
-    if (method === 'PUT' && path === '/admin/api/voice') return sendJson(response, 200, await voiceConfig.save(await jsonBody(request)));
+    if (method === 'PUT' && path === '/admin/api/voice') return sendJson(response, 200, await voiceConfig.save(await jsonBody(request, 512 * 1024)));
     if (method === 'POST' && path === '/admin/api/voice/voices') {
       limiter.check(`voice-catalog:${request.socket.remoteAddress}`, 30);
       const input = await jsonBody(request);
@@ -630,8 +638,8 @@ export async function createSelfHostServer(options = {}) {
     }
     if (request.method === 'POST' && path === '/local/voice/session') {
       const found = device(request); limiter.check(`voice-session:${found.id}`, 10);
-      const { agentId, audioProcessing } = await jsonBody(request, 2048); await verifyAgent(agentId);
-      return sendJson(response, 200, voice.issue(found.id, agentId, origin, audioProcessing));
+      const { agentId, audioProcessing } = await jsonBody(request, 2048);
+      return sendJson(response, 200, voice.issue(found.id, await verifyAgent(agentId, { includeProfile: true }), origin, audioProcessing));
     }
     if (request.method === 'GET' && path === '/local/voice/status') {
       device(request);
@@ -670,7 +678,13 @@ export async function createSelfHostServer(options = {}) {
     }
     if (path.startsWith("/local/mobile-rpc/")) {
       const found = device(request), method = path.slice("/local/mobile-rpc/".length);
-      check(request.method === "POST" && mobileConnectorMethods.has(method), 404, "连接应用接口不存在");
+      check(request.method === "POST", 404, "连接应用接口不存在");
+      if (mobileCompatRpcMethods.has(method)) {
+        await jsonBody(request, 512 * 1024, { allowEmpty: true });
+        const result = mobileCompatRpc(method);
+        return sendJson(response, result.status, result.body);
+      }
+      check(mobileConnectorMethods.has(method), 404, "连接应用接口不存在");
       return sendJson(response, 200, await connectors.mobile(method,
         // The original client omits the body for parameterless RPC methods.
         await jsonBody(request, 512 * 1024, { allowEmpty: true }), origin, { kind: "device", id: found.id }));
@@ -820,6 +834,11 @@ export async function createSelfHostServer(options = {}) {
       if (connectorApiMethods.has(path.slice("/api/".length)))
         return sendJson(response, 200, await connectors.original(path.slice("/api/".length),
           await jsonBody(request, 512 * 1024), origin, { kind: "device", id: found.id }));
+      if (clientCompatMethods.has(path.slice("/api/".length))) {
+        const method = path.slice("/api/".length);
+        const input = await jsonBody(request, 128 * 1024, { allowEmpty: true });
+        return sendJson(response, 200, await handleClientCompatRpc(method, input, internalHostClient(hostUrl, internalToken)));
+      }
       if (path === "/api/deleteAgents")
         return deleteAgentsWithLibrary(request, response, {
           hostUrl,

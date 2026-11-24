@@ -48,6 +48,14 @@ export function createGateway(config, onUnauthorized, onConnected, onStateChange
     if (lifetime.signal.aborted) throw new Error(grokText('已退出连接，请重新连接。', 'Disconnected. Connect again.'));
     if (method === 'getServerAgentRoster') return { status: 'disabled' };
     if (method === 'getMainAgent') return { agentId: null };
+    if (method === 'ensureDefaultMainAgent') {
+      // The Host keeps no main Bot; the first visible Bot satisfies the client's non-empty ID check.
+      const agents = await request('/api/listAgents', {}, signal);
+      const first = Array.isArray(agents) ? agents.find(agent => typeof agent?.id === 'string' && !agent.isHiddenFromSidebar) : null;
+      return { outcome: 'present', agentId: first?.id ?? null };
+    }
+    if (method === 'setMainAgent') return { agentId: typeof args?.agentId === 'string' ? args.agentId : null };
+    if (method === 'dismissAgentSuggestions' || method === 'confirmTeachLearningPrompt') return null;
     if (method === 'resolveAgentCreation') return { kind: 'box' };
     if (method === 'restoreTemporalAgentRouting' || method === 'noteMountedAgent') return null;
     if (method === 'createAgent') { const { creationRoute, ...rest } = args; args = rest; }

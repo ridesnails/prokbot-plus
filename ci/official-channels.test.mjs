@@ -6,19 +6,28 @@ import { discover, main } from './official-channels.mjs';
 const urls = {
   windows: 'https://api2.cursor.sh/updates/api/download/stable/win32-x64-user/sand',
   mac: 'https://api2.cursor.sh/updates/api/download/stable/darwin-arm64/sand',
+  linux: 'https://api2.cursor.sh/updates/api/download/stable/linux-x64/sand',
   ios: 'https://itunes.apple.com/lookup?id=6794501026&country=us',
 };
 const pin = async path => JSON.parse(await readFile(new URL(`../${path}`, import.meta.url), 'utf8'));
-const [win, mac, ios, android] = await Promise.all([
+const [win, mac, linux, ios, android] = await Promise.all([
   'windows/patchers/desktop/supported.json', 'mac/patchers/desktop/supported.json',
+  'linux/patchers/desktop/supported.json',
   'ios/recipes/ios/manifest.json', 'android/patchers/supported.json',
 ].map(pin));
+const linuxBuildId = linux.archive.url.match(/\/stable\/([0-9a-f]{40})\//i)?.[1] ?? 'abc1'.repeat(10);
 const buildId = 'abc1'.repeat(10);
 const listing = 'https://apps.apple.com/us/app/grok-bot/id6794501026';
 const json = (value, type = 'application/json') => new Response(JSON.stringify(value),
   { headers: { 'content-type': `${type}; charset=utf-8` } });
 
-function desktop(channel, release = (channel === 'windows' ? win : mac).version) {
+function desktop(channel, release = (channel === 'windows' ? win : channel === 'linux' ? linux : mac).version) {
+  if (channel === 'linux') {
+    return { version: release,
+      downloadUrl: `https://downloads.cursor.com/grokbot/stable/${linuxBuildId}/linux/x64/Grok_Bot_${release}.AppImage`,
+      debUrl: `https://downloads.cursor.com/grokbot/stable/${linuxBuildId}/linux/x64/grok-bot_${release}_amd64.deb`,
+      commitSha: linuxBuildId, rehUrl: 'https://example.invalid/ignored-archive.tar.gz' };
+  }
   const path = channel === 'windows' ? `win32-x64/${release}/Grok_Bot_${release}_Setup.exe`
     : `darwin-arm64/${release}/Grok_Bot_${release}.dmg`;
   return { version: release, downloadUrl: `https://downloads.cursor.com/grokbot/stable/${path}`,
@@ -61,7 +70,7 @@ test('offline by default, help or invalid options never start discovery', async 
   assert.equal(fixtures.calls.length, 0);
 });
 
-test('both release checks produce timestamped JSON from only three anonymous metadata GETs', async () => {
+test('both release checks produce timestamped JSON from only four anonymous metadata GETs', async () => {
   const fixtures = fakeFeeds();
   for (const phase of ['planning', 'pre-release']) {
     const out = await cli(['--online', '--phase', phase], fixtures);
@@ -73,13 +82,13 @@ test('both release checks produce timestamped JSON from only three anonymous met
     assert.equal(label, phase);
     assert.equal(ok, true);
     assert.equal(artifactsVerified, false);
-    for (const [key, local] of [['windows', win], ['mac', mac]]) {
+    for (const [key, local, expectedBuild] of [['windows', win, buildId], ['mac', mac, buildId], ['linux', linux, linuxBuildId]]) {
       const item = channels[key];
       assert.equal(item.source, urls[key]);
       assert.equal(item.pinned.version, local.version);
       assert.equal(item.pinned.archiveSha256, local.archive.sha256);
       assert.equal(item.observed.downloadUrl, local.archive.url);
-      assert.equal(item.observed.buildId, buildId);
+      assert.equal(item.observed.buildId, expectedBuild);
       assert.equal(item.observed.buildIdField, 'commitSha');
       assert.equal(item.observed.publishedArchiveSha256, null);
       assert.deepEqual(item.comparison, { version: 'same', archiveUrl: 'same', archiveSha256: 'not-published' });
@@ -99,9 +108,9 @@ test('both release checks produce timestamped JSON from only three anonymous met
       assert.equal(channels[key].comparison, null);
       assert.ok(channels[key].pinned);
     }
-    assert.deepEqual(fixtures.calls.slice(-3).map(x => x.url).sort(), Object.values(urls).sort());
+    assert.deepEqual(fixtures.calls.slice(-4).map(x => x.url).sort(), Object.values(urls).sort());
   }
-  assert.equal(fixtures.calls.length, 6);
+  assert.equal(fixtures.calls.length, 8);
   for (const { options } of fixtures.calls) {
     assert.equal(options.method, 'GET');
     assert.equal(options.redirect, 'error');
@@ -198,7 +207,7 @@ test('failed or malformed responses retain the other evidence and exit nonzero w
     const fixtures = fakeFeeds({ mac: response });
     const out = await cli(['--online'], fixtures);
     assert.equal(out.code, 1);
-    assert.equal(fixtures.calls.length, 3);
+    assert.equal(fixtures.calls.length, 4);
     const { ok, channels } = JSON.parse(out.stdout);
     assert.equal(ok, false);
     assert.equal(channels.mac.status, 'error');

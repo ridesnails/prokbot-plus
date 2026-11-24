@@ -6,8 +6,9 @@
 
 <p>
 <!-- client-badges:start -->
-  <a href="#client-versions"><img alt="Windows official 1.2.3 x64 (not supported by this patch)" src="https://img.shields.io/badge/Windows%20official-1.2.3%20x64%20(not%20supported%20by%20this%20patch)-0078D4?logo=windows&logoColor=white"></a>
-  <a href="#client-versions"><img alt="Windows patch accepts 1.1.0 x64 (recommended), 0.71.2" src="https://img.shields.io/badge/Windows%20patch%20accepts-1.1.0%20x64%20(recommended)%2C%200.71.2-237E55?logo=windows&logoColor=white"></a>
+  <a href="#client-versions"><img alt="Windows official 1.2.3 x64" src="https://img.shields.io/badge/Windows%20official-1.2.3%20x64-0078D4?logo=windows&logoColor=white"></a>
+  <a href="#client-versions"><img alt="Windows patch accepts 1.2.3 x64 (recommended), 1.1.0, 0.71.2" src="https://img.shields.io/badge/Windows%20patch%20accepts-1.2.3%20x64%20(recommended)%2C%201.1.0%2C%200.71.2-237E55?logo=windows&logoColor=white"></a>
+  <a href="#client-versions"><img alt="Linux official 1.2.3 x64 / ARM64" src="https://img.shields.io/badge/Linux%20official-1.2.3%20x64%20%2F%20ARM64-237E55?logo=linux&logoColor=white"></a>
   <a href="#client-versions"><img alt="macOS official 1.2.3 ARM64 / Intel" src="https://img.shields.io/badge/macOS%20official-1.2.3%20ARM64%20%2F%20Intel-111111?logo=apple&logoColor=white"></a>
   <a href="#client-versions"><img alt="iOS official 1.27.0" src="https://img.shields.io/badge/iOS%20official-1.27.0-111111?logo=apple&logoColor=white"></a>
   <a href="#client-versions"><img alt="Android shell 1.1.0" src="https://img.shields.io/badge/Unofficial%20Android-1.1.0-237E55?logo=android&logoColor=white"></a>
@@ -47,7 +48,7 @@ Grok Bot is xAI's AI assistant app. Besides chatting, its Bots have their own Li
 
 [ProkBot](https://gitee.com/ahaduoduoduo/ProkBot) moves the server side onto your own server with Docker and patches the official clients to connect to it. **ProkBot Plus** builds on it with:
 
-- **More clients**: a Windows client, our own Android app and a web client that runs in any browser;
+- **More clients**: Windows and Linux (x64 / ARM64) desktop clients, our own Android app and a web client that runs in any browser;
 - **More model APIs**: Anthropic Messages, OpenAI Responses and OpenAI Chat, with a main model, reasoning effort and fallback models per Bot;
 - **Fixes**: web search, image generation, message order, automatic review and more;
 - **Deployment tools**: one command to check, start, update and back up, plus a deployment guide an AI can follow.
@@ -77,14 +78,15 @@ You also need a model API with tool calling (and image input, if the Bot should 
 
 <a id="client-versions"></a>
 <!-- client-versions:start -->
-**Which official version should I download?** The one in the right column; the patches accept only those versions. Where two versions are listed, use the recommended newer one first and switch to the older one only if it does not work. The left column is the latest official release (checked 2026-11-20); when it is newer, wait until this project supports it.
+**Which official version should I download?** The one in the right column; the patches accept only those versions. Where two versions are listed, use the recommended newer one first and switch to the older one only if it does not work. The left column is the latest official release (checked 2026-11-24); when it is newer, wait until this project supports it.
 
 | Platform | Latest official | Version this project needs |
 | --- | --- | --- |
-| Windows x64 | [1.2.3](https://api2.cursor.sh/updates/api/download/stable/win32-x64-user/sand) (not supported by this patch) | **1.1.0** (recommended); 0.71.2 if it does not work |
-| macOS ARM64 | [1.2.3](https://api2.cursor.sh/updates/api/download/stable/darwin-arm64/sand) | 0.71.2 (not yet adapted to 1.2.3; not tested on a Mac) |
-| macOS Intel (x64) | [1.2.3](https://api2.cursor.sh/updates/api/download/stable/darwin-x64/sand) | 0.71.2 (experimental: not yet adapted to 1.2.3; confirmed working by a user on an Intel Mac) |
-| iOS | [1.27.0](https://apps.apple.com/us/app/grok-bot/id6794501026) | 1.16.0 (build 23152; not tested on an iPhone or iPad) |
+| Windows x64 | [1.2.3](https://api2.cursor.sh/updates/api/download/stable/win32-x64-user/sand) | **1.2.3** (recommended); 1.1.0, 0.71.2 if it does not work |
+| Linux x64 / ARM64 | [1.2.3](https://api2.cursor.sh/updates/api/download/stable/linux-x64/sand) | 1.2.3 (.deb archive; tested on Ubuntu 22.04 x64 under WSL2; native desktops and ARM64 untested) |
+| macOS ARM64 | [1.2.3](https://api2.cursor.sh/updates/api/download/stable/darwin-arm64/sand) | 1.2.3 (not tested on a Mac) |
+| macOS Intel (x64) | [1.2.3](https://api2.cursor.sh/updates/api/download/stable/darwin-x64/sand) | 1.2.3 (tested working on an Intel Mac with 1.2.3) |
+| iOS | [1.27.0](https://apps.apple.com/us/app/grok-bot/id6794501026) | 1.27.0 (build 29519; pairing, messaging and App Intents verified on an iPad) |
 | Android 9+ (unofficial) | Does not use the official Android app | App **1.1.0** (build 10100), interface taken from the Windows **1.1.0** installer (recommended; 0.71.2 if it does not work) |
 | Web client (browser, unofficial) | Nothing to install | Interface taken from the Windows **1.1.0** installer (recommended; 0.71.2 if it does not work), built once and uploaded to your Host |
 | Linux server | n/a | Host `d0a4baa`; Bot computer `9d2ac1b` (x86_64) |
@@ -95,10 +97,11 @@ ProkBot Plus has its own version numbers; see the [latest release](https://githu
 | Client | Requirements | Notes |
 | --- | --- | --- |
 | Windows | Windows 10 / 11 x64 | New in Plus. Portable version or installer, no administrator rights needed. The Bot can run commands on your PC and asks you first. Tested on Windows 11. |
+| Linux | Linux x64 / ARM64 desktop | New in Plus. Portable folder, `.tar.gz` and per-user install script, no root needed. Supports Tailcat, local commands and Codex; no local mouse/keyboard GUI control. Tested on Ubuntu 22.04 x64 under WSL2; native Linux desktops and ARM64 are untested. |
 | Android | Android 9+, system WebView 89+ | Our own app, not the official Android app. Tested on Android 15 / 16 emulators, not on a real phone. |
 | Web client | Current Chrome, Edge, Firefox or Safari | Served by your Host and adapts to phones, tablets and computers; sign in with a pairing code. It works with the Bot's computer only, never your own device. |
-| Mac | Apple Silicon or Intel | Patch from upstream, still on the official 0.71.2; this project has not tested it on a real Mac. Intel support is experimental; a user has confirmed building, pairing and chatting on an Intel Mac. |
-| iPhone / iPad | Your own decrypted IPA and signing certificate | Patch from upstream; this project has not tested it on a real device. |
+| Mac | Apple Silicon or Intel | Supports official 1.2.3 on both Apple Silicon and Intel Macs (Intel 1.2.3 live-tested on an Intel Mac; Apple Silicon 1.2.3 built and signature-verified). |
+| iPhone / iPad | Your own decrypted IPA and signing certificate | Supports official 1.27.0 (build 29519, recommended), with 1.26.0 and 1.16.0 fallbacks. The contributor tested upgrading, pairing, chat and attachments with 1.27.0 on an iPad; iPhone has not been fully tested. |
 
 <a id="android-client"></a><a id="web-client"></a>
 **The Android app** does not modify the official Android app (it is tamper-protected). It puts the official desktop interface into a shell written by this project. You can watch the Bot's computer live and take control, and notifications work without Google push. You sign the APK with your own key.
@@ -117,7 +120,7 @@ Ask about my machines, any existing instance, model and access method. Run docto
 
 To do it yourself, follow the [deployment guide](docs/AI-INSTALL.en.md): on the server run `doctor` → `init` → `up` → `status`, then set up the model and create a pairing code on the admin page, and connect with a client.
 
-The [latest release](https://github.com/ferretgeek/prokbot-plus/releases/latest) has six tool packages: Host, Windows, Mac, iOS, Android and web client. Download the one you need. The packages contain no official programs; you build the clients on your own computer from the official installers.
+The [latest release](https://github.com/ferretgeek/prokbot-plus/releases/latest) has seven tool packages: Host, Windows, Mac, Linux, iOS, Android and web client. Download the one you need. The packages contain no official programs; you build the clients on your own computer from the official installers.
 
 ## Compared with official Grok Bot
 
@@ -131,7 +134,7 @@ The [latest release](https://github.com/ferretgeek/prokbot-plus/releases/latest)
 - some official features are off (virtual cards, external message drafts, passkey forwarding), and voice, push and image generation need your own providers;
 - Bots shared on the official website ("Add to Grok Bot" on x.ai/bot/… pages) cannot be added, because those templates live in the official cloud; Bots are shared between Hosts as ZIP files;
 - the clients are not code-signed: Windows shows a SmartScreen prompt, you sign the iPhone app yourself, and Android needs installs from unknown sources allowed;
-- on Windows the Bot can run commands but cannot yet control the mouse and keyboard;
+- on Windows and Linux the Bot can run commands but cannot yet control the mouse and keyboard;
 - patching the official clients may break the official terms of use; you do so at your own risk.
 
 ## Documentation
@@ -140,10 +143,11 @@ The [latest release](https://github.com/ferretgeek/prokbot-plus/releases/latest)
 | --- | --- |
 | [Deployment guide](docs/AI-INSTALL.en.md) | Deployment, models, building clients, operations, backup and restore, troubleshooting |
 | [Architecture](docs/ARCHITECTURE.en.md) | How it works, what Plus changes, layout, tests, maintenance and releases, known limits |
+| [Linux client guide](linux/README.en.md) | Building, portable launch, rootless install and AppArmor sandboxing for Linux (x64 / ARM64) |
 | [Web client guide](web/README.en.md) | Building, uploading and signing in to the web client; browser support |
 | [Changelog](CHANGELOG.md) | What changed in each release |
 
-Each platform has its own README under `host/`, `windows/`, `android/`, `web/`, `mac/` and `ios/`, shipped with its tool package.
+Each platform has its own README under `host/`, `windows/`, `mac/`, `linux/`, `android/`, `web/` and `ios/`, shipped with its tool package.
 
 ## Community
 

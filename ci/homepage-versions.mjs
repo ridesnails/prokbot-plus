@@ -12,27 +12,31 @@ const official = {
   win: 'https://api2.cursor.sh/updates/api/download/stable/win32-x64-user/sand',
   mac: 'https://api2.cursor.sh/updates/api/download/stable/darwin-arm64/sand',
   macIntel: 'https://api2.cursor.sh/updates/api/download/stable/darwin-x64/sand',
+  linux: 'https://api2.cursor.sh/updates/api/download/stable/linux-x64/sand',
+  linuxArm64: 'https://api2.cursor.sh/updates/api/download/stable/linux-arm64/sand',
   ios: 'https://apps.apple.com/us/app/grok-bot/id6794501026',
 };
 
 export async function readVersions() {
-  const [snap, mac, macIntel, ios, android, host] = await Promise.all(['ci/official-snapshot.json',
-    'mac/patchers/desktop/supported.json', 'mac/patchers/desktop/x64/supported.json', 'ios/recipes/ios/manifest.json',
+  const [snap, mac, macIntel, linux, linuxArm64, ios, android, host] = await Promise.all(['ci/official-snapshot.json',
+    'mac/patchers/desktop/supported.json', 'mac/patchers/desktop/x64/supported.json',
+    'linux/patchers/desktop/supported.json', 'linux/patchers/desktop/arm64/supported.json',
+    'ios/recipes/ios/manifest.json',
     'android/patchers/supported.json', 'host/recipes/host/manifest.json'].map(json));
   // The recommended Windows release first, then the older ones the patch still builds.
   const [win, ...winFallback] = (await windowsReleases()).map(release => release.supported);
   const androidFallback = (android.fallback ?? []).map(item => item.desktopVersion);
   assert.match(snap.checkedOn, /^\d{4}-\d{2}-\d{2}$/);
   assert.equal(snap.ios.trackId, 6794501026); assert.equal(snap.ios.store, 'us');
-  for (const channel of [snap.windows, snap.mac]) assert.match(channel.build, /^[a-f0-9]{40}$/);
-  for (const v of [snap.windows.version, snap.mac.version, snap.ios.version, win.version, ...winFallback.map(item => item.version),
-    mac.version, macIntel.version, ios.version, android.desktopVersion, ...androidFallback, android.shell.versionName]) assert.match(v, version);
+  for (const channel of [snap.windows, snap.mac, snap.linux]) assert.match(channel.build, /^[a-f0-9]{40}$/);
+  for (const v of [snap.windows.version, snap.mac.version, snap.linux.version, snap.ios.version, win.version, ...winFallback.map(item => item.version),
+    mac.version, macIntel.version, linux.version, linuxArm64.version, ios.version, android.desktopVersion, ...androidFallback, android.shell.versionName]) assert.match(v, version);
   assert.ok(Number.isSafeInteger(android.shell.versionCode) && android.shell.versionCode > 0);
   assert.match(ios.build, /^\d+$/);
   assert.match(host.archive.version, /^[a-f0-9]{7,40}$/);
   const box = /^grokbot-box-input:([a-f0-9]{7,40})$/.exec(host.box.localTag);
   assert.ok(box); assert.equal(host.box.platform, 'linux/amd64');
-  return { snap, win, winFallback, mac, macIntel, ios, android, androidFallback, host: host.archive.version, box: box[1] };
+  return { snap, win, winFallback, mac, macIntel, linux, linuxArm64, ios, android, androidFallback, host: host.archive.version, box: box[1] };
 }
 
 function block(text, name, body) {
@@ -50,9 +54,14 @@ function windowsNote(observed, accepted, zh) {
   return zh ? '此补丁不支持' : 'not supported by this patch';
 }
 
+function iosNote(observed, pinned, zh) {
+  if (observed.version === pinned.version) return '';
+  return zh ? '此补丁不支持' : 'not supported by this patch';
+}
+
 export function render(text, lang, data) {
   assert.ok(['zh','en'].includes(lang));
-  const { snap, win, winFallback, mac, macIntel, ios, android, androidFallback, host, box } = data;
+  const { snap, win, winFallback, mac, macIntel, linux, linuxArm64, ios, android, androidFallback, host, box } = data;
   const zh = lang === 'zh', label = zh ? '官方' : 'official';
   const list = items => items.join(zh ? '、' : ', ');
   function badge(name, value, description, logo, color) {
@@ -60,6 +69,8 @@ export function render(text, lang, data) {
   }
   const windowsBadge = (name, value, color) => badge(name,value,`${name} ${value}`,'windows',color);
   const note = windowsNote(snap.windows, [win, ...winFallback], zh);
+  const linuxNote = windowsNote(snap.linux, [linux], zh);
+  const iosUnsupported = iosNote(snap.ios, ios, zh);
   const older = winFallback.map(item => item.version);
   const accepted = older.length ? `${win.version} x64${zh ? `（推荐）、${list(older)}` : ` (recommended), ${list(older)}`}` : `${win.version} x64`;
   const windowsNeeds = older.length ? (zh ? `**${win.version}**（推荐）；用不了再用 ${list(older)}` :
@@ -67,8 +78,10 @@ export function render(text, lang, data) {
   const androidNeeds = androidFallback.length ? (zh ? `（推荐；用不了再用 ${list(androidFallback)}）` :
     ` (recommended; ${list(androidFallback)} if it does not work)`) : '';
   const macNote = snap.mac.version === mac.version ? '' : zh ? `尚未适配 ${snap.mac.version}；` : `not yet adapted to ${snap.mac.version}; `;
+  const linuxVersionNote = snap.linux.version === linux.version ? '' : zh ? `尚未适配 ${snap.linux.version}；` : `not yet adapted to ${snap.linux.version}; `;
   const badges = [windowsBadge(`Windows ${label}`,`${snap.windows.version} x64${note ? ` (${note})` : ''}`,'0078D4'),
     windowsBadge(zh ? 'Windows 补丁接受' : 'Windows patch accepts',accepted,'237E55'),
+    badge(`Linux ${label}`,`${snap.linux.version} x64 / ARM64${linuxNote ? ` (${linuxNote})` : ''}`,`Linux ${label} ${snap.linux.version} x64 / ARM64${linuxNote ? ` (${linuxNote})` : ''}`,'linux','237E55'),
     badge(`macOS ${label}`,`${snap.mac.version} ARM64 / Intel`,`macOS ${label} ${snap.mac.version} ARM64 / Intel`,'apple','111111'),
     badge(`iOS ${label}`,snap.ios.version,`iOS ${label} ${snap.ios.version}`,'apple','111111'),
     badge(zh ? '自开发 Android' : 'Unofficial Android',android.shell.versionName,`Android shell ${android.shell.versionName}`,'android','237E55'),
@@ -79,9 +92,10 @@ export function render(text, lang, data) {
     zh ? '| 平台 | 官方最新版 | 本项目需要的版本 |' : '| Platform | Latest official | Version this project needs |',
     '| --- | --- | --- |',
     `| Windows x64 | [${snap.windows.version}](${official.win})${note ? (zh ? `（${note}）` : ` (${note})`) : ''} | ${windowsNeeds} |`,
+    `| Linux x64 / ARM64 | [${snap.linux.version}](${official.linux})${linuxNote ? (zh ? `（${linuxNote}）` : ` (${linuxNote})`) : ''} | ${linux.version}${linuxArm64.version === linux.version ? '' : ` / ${linuxArm64.version}`}${zh ? `（${linuxVersionNote}.deb 原包；已在 WSL2 的 Ubuntu 22.04 x64 上实测，原生桌面和 ARM64 未实测）` : ` (${linuxVersionNote}.deb archive; tested on Ubuntu 22.04 x64 under WSL2; native desktops and ARM64 untested)`} |`,
     `| macOS ARM64 | [${snap.mac.version}](${official.mac}) | ${mac.version}${zh ? `（${macNote}未在 Mac 真机上测试）` : ` (${macNote}not tested on a Mac)`} |`,
-    `| macOS Intel (x64) | [${snap.mac.version}](${official.macIntel}) | ${macIntel.version}${zh ? `（实验：${macNote}已有用户在 Intel Mac 上实测可用）` : ` (experimental: ${macNote}confirmed working by a user on an Intel Mac)`} |`,
-    `| iOS | [${snap.ios.version}](${official.ios}) | ${ios.version}${zh ? `（构建 ${ios.build}；未在 iPhone / iPad 上测试）` : ` (build ${ios.build}; not tested on an iPhone or iPad)`} |`,
+    `| macOS Intel (x64) | [${snap.mac.version}](${official.macIntel}) | ${macIntel.version}${zh ? `（${macNote}已在 Intel Mac 上实测 1.2.3 可用）` : ` (${macNote}tested working on an Intel Mac with 1.2.3)`} |`,
+    `| iOS | [${snap.ios.version}](${official.ios})${iosUnsupported ? (zh ? `（${iosUnsupported}）` : ` (${iosUnsupported})`) : ''} | ${ios.version}${zh ? `（构建 ${ios.build}；已在 iPad 上验证连接、发消息和 App Intent）` : ` (build ${ios.build}; pairing, messaging and App Intents verified on an iPad)`} |`,
     zh ? `| Android 9+（自开发，非官方） | 不用官方 Android 版 | App **${android.shell.versionName}**（构建 ${android.shell.versionCode}），界面取自 Windows **${android.desktopVersion}** 安装包${androidNeeds} |` :
       `| Android 9+ (unofficial) | Does not use the official Android app | App **${android.shell.versionName}** (build ${android.shell.versionCode}), interface taken from the Windows **${android.desktopVersion}** installer${androidNeeds} |`,
     zh ? `| 网页版（浏览器，非官方） | 不用安装 | 界面取自 Windows **${android.desktopVersion}** 安装包${androidNeeds}，生成后上传到你的 Host |` :

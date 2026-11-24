@@ -3,8 +3,8 @@ import { readFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { grokText as localText, setLocaleSource } from './i18n.mjs';
-import { credentialStore, credentialUnavailableText, finishPairingWindow, pair, verifyDevice, openTransport, restoreConnection, savedConnectionMatches } from './connection.mjs';
-import { APP_USER_MODEL_ID, canRegisterDesktopIntegration, connectWindowChrome, createTray, ensureStartMenuShortcut, initialLink, isWindows,
+import { credentialStore, credentialUnavailableText, ensureCredentialEncryption, finishPairingWindow, pair, verifyDevice, openTransport, restoreConnection, savedConnectionMatches } from './connection.mjs';
+import { APP_USER_MODEL_ID, canRegisterDesktopIntegration, connectWindowChrome, createTray, ensureStartMenuShortcut, initialLink, isLinux, isWindows,
   windowChrome, windowHandlers } from './platform.mjs';
 import { createGateway } from './gateway.mjs';
 import { createClientPersistence } from './client-persistence.mjs';
@@ -31,6 +31,8 @@ app.setPath('userData', profile);
 app.setName('Grok Bot Local');
 // Windows groups windows and delivers toasts by this ID; it matches the Start menu shortcut.
 if (isWindows) app.setAppUserModelId(APP_USER_MODEL_ID);
+// Wayland compositors match windows to grokbot-local.desktop via desktopName.
+if (isLinux && typeof app.setDesktopName === 'function') app.setDesktopName('grokbot-local.desktop');
 const clientSettings = loadSettings(profile);
 const enabledAtLaunch = clientSettings.hardwareAcceleration;
 if (!enabledAtLaunch) app.disableHardwareAcceleration();
@@ -130,20 +132,27 @@ async function showConnection() {
   if (!app.isReady()) return;
   if (connectWindow && !connectWindow.isDestroyed()) { connectWindow.show(); connectWindow.focus(); return; }
   connectWindow = new BrowserWindow({ width: 510, height: 510, resizable: false, maximizable: false,
-    title: localText('连接 Grok Bot', 'Connect Grok Bot'), backgroundColor: '#111111', ...connectWindowChrome(),
+    title: localText('连接 Grok Bot', 'Connect Grok Bot'), backgroundColor: '#111111',
+    ...(isLinux ? { icon: path.join(clientRoot, 'icon.png') } : {}), ...connectWindowChrome(),
     webPreferences: { preload: path.join(clientRoot, 'connect-preload.cjs'), sandbox: true, nodeIntegration: false, contextIsolation: true } });
   connectWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   connectWindow.webContents.on('will-navigate', event => event.preventDefault());
-  connectWindow.on('closed', () => { connectWindow = null; });
+  connectWindow.on('closed', () => {
+    connectWindow = null;
+    if (isLinux && !tray && !quitting && (!mainWindow || mainWindow.isDestroyed())) app.quit();
+  });
   await connectWindow.loadFile(path.join(clientRoot, 'connect.html'));
 }
 function updateMenu() {
-  // Windows windows are frameless with native caption buttons; the menu only supplies shortcuts.
+  // Windows and Linux workspace windows are frameless; the menu supplies keyboard shortcuts
+  // (Linux includes fileMenu so Ctrl+Q exits even when no system tray is available).
   Menu.setApplicationMenu(Menu.buildFromTemplate(isWindows
     ? [{ role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }]
-    : [{ label: 'Grok Bot', submenu: [{ role: 'about' }, { type: 'separator' },
-      { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
-    { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }]));
+    : isLinux
+      ? [{ role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }]
+      : [{ label: 'Grok Bot', submenu: [{ role: 'about' }, { type: 'separator' },
+        { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
+      { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }]));
 }
 async function showWorkspace() {
   const pairingWindow = connectWindow;
@@ -154,15 +163,18 @@ async function showWorkspace() {
     if (mainWindow?.isFocused()) void accountProfile?.refresh().catch(() => {});
   };
   gateway = createGateway(activeConfig, unauthorized, reportFocus, reportConnection);
-  // The Host lists unnamed desktop clients as Macs; Windows reports itself once per session.
-  if (isWindows) void gateway.request('/local/device', { kind: 'desktop', clientKind: 'windows', appVersion: app.getVersion() },
+  // The Host lists unnamed desktop clients as Macs; Windows and Linux report themselves once per session.
+  if (isWindows || isLinux) void gateway.request('/local/device', { kind: 'desktop', clientKind: isWindows ? 'windows' : 'linux', appVersion: app.getVersion() },
     AbortSignal.timeout(15000), 'PUT').catch(() => {});
   // Apply the saved theme (dark by default) before the first paint; createSettings applies it again.
   if (['dark', 'light', 'system'].includes(clientSettings.theme)) nativeTheme.themeSource = clientSettings.theme;
   const background = nativeTheme.shouldUseDarkColors ? '#111111' : '#ffffff';
+  const waylandArgs = isLinux && app.commandLine.getSwitchValue('ozone-platform') === 'wayland' ? ['--sand-wayland-client'] : [];
   const win = new BrowserWindow({ width: 1200, height: 850, minWidth: 720, minHeight: 500,
-    title: 'Grok Bot', backgroundColor: background, ...windowChrome(background),
-    webPreferences: { preload: path.join(clientRoot, 'preload.cjs'), contextIsolation: true,
+    title: 'Grok Bot', backgroundColor: background,
+    ...(isLinux ? { icon: path.join(clientRoot, 'icon.png') } : {}), ...windowChrome(background),
+    webPreferences: { ...(waylandArgs.length ? { additionalArguments: waylandArgs } : {}),
+      preload: path.join(clientRoot, 'preload.cjs'), contextIsolation: true,
       nodeIntegration: false, sandbox: false, webviewTag: true } });
   mainWindow = win;
   const chrome = windowHandlers(win, background, { workArea: window => screen.getDisplayMatching(window.getBounds()).workArea });
@@ -180,7 +192,7 @@ async function showWorkspace() {
     win.on(event, () => send('window-visibility', { visible: win.isVisible() && !win.isMinimized() }));
   win.on('focus', () => send('window-focus', {}));
   win.on('close', event => {
-    if (!quitting) { event.preventDefault(); win.hide(); }
+    if (!quitting && (!isLinux || tray)) { event.preventDefault(); win.hide(); }
     if (process.env.GROKBOT_LOCAL_DEBUG_PORT) console.log('[notification-window]', JSON.stringify({visible:win.isVisible(),focused:win.isFocused(),quitting}));
     void gateway.command('setWindowFocused', { isFocused: false }).catch(() => {});
   });
@@ -233,6 +245,7 @@ async function showWorkspace() {
     for (const dispose of ports) dispose(); ports.clear();
     deepLinksReady = false;
     if (mainWindow === win) mainWindow = null;
+    if (isLinux && !tray && !quitting && (!connectWindow || connectWindow.isDestroyed())) app.quit();
   });
   win.webContents.on('preload-error', (_event, _file, error) => console.error('[preload]', error.message));
   win.webContents.on('render-process-gone', (_event, details) => console.error('[renderer]', details.reason));
@@ -272,7 +285,7 @@ ipcMain.handle('grokbot-local:pair', async (event, args) => {
     if (editing && !savedConnectionMatches(saved, args.server, tunneled))
       throw new Error(localText('更改 Host 地址需要新的配对码。', 'Enter a new pairing code to change the Host address.'));
     // Check the keychain before consuming a one-use pairing Key.
-    if (!safeStorage.isEncryptionAvailable()) throw new Error(credentialUnavailableText());
+    if (!ensureCredentialEncryption(safeStorage)) throw new Error(credentialUnavailableText());
     const reuse = editing && tunneled && transport?.tunnel?.status.state === 'ready';
     const nextTransport = reuse ? transport : await openTransport(args.server, tunneled,
       { binary: transportBinary, identity: editing && tunneled ? saved.networkIdentity : undefined });
@@ -361,6 +374,9 @@ if (isWindows) {
   try { if (registerIntegration) ensureStartMenuShortcut({ app, shell }); }
   catch (error) { console.warn('[shortcut]', error.message); }
   tray = createTray({ Tray, Menu, nativeImage, clientRoot, show: () => void showApp(), quit: () => app.quit(), text: localText });
+} else if (isLinux) {
+  try { tray = createTray({ Tray, Menu, nativeImage, clientRoot, show: () => void showApp(), quit: () => app.quit(), text: localText }); }
+  catch (error) { console.warn('[tray]', error.message); }
 }
 app.on('before-quit', () => { quitting = true; stopConnection(); void transport?.close(); });
 // Activate the app for any Keychain prompt, then choose the first window from

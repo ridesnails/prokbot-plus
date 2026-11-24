@@ -8,7 +8,7 @@ export function observeHostComputers(bridge, { send, intervalMs = 5000 } = {}) {
     try {
       const computers = bridge.userComputers.list().map(({ id, label, connected }) => ({
         id, label, connected: connected === true,
-        platform: id.startsWith('mac-') ? 'darwin' : id.startsWith('win-') ? 'win32' : 'unknown',
+        platform: id.startsWith('mac-') ? 'darwin' : id.startsWith('win-') ? 'win32' : id.startsWith('linux-') ? 'linux' : 'unknown',
         capabilities: ['exec', 'files'],
       }));
       send({ type: 'local-computers', available: true, computers });

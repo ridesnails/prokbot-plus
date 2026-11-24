@@ -10,8 +10,9 @@ export class Voice {
     this.websockets = new WebSocketServer({ noServer: true, maxPayload: 256 * 1024, perMessageDeflate: false,
       handleProtocols: protocols => [...protocols].find(value => value.startsWith('xai-client-secret.')) ?? false });
   }
-  issue(deviceId, agentId, origin, audioProcessing) {
-    this.config.resolveSynthesisConfig();
+  issue(deviceId, agent, origin, audioProcessing) {
+    check(agent && typeof agent.id === 'string', 400, 'Invalid voice Bot');
+    this.config.resolveSynthesisConfig(agent);
     check(this.speech.publicConfig().enabled, 503, 'Speech recognition is not configured');
     for (const [key, item] of this.tickets) if (item.expiresAt <= Date.now() || item.deviceId === deviceId) this.tickets.delete(key);
     check(this.tickets.size < 64, 429, 'Too many pending voice sessions');
@@ -19,7 +20,7 @@ export class Voice {
     const bufferedBargeIn = audioProcessing === 'native-aec3-buffered-v1';
     const clientAEC = bufferedBargeIn || ['native-aec-v1', 'native-aec3-v1'].includes(audioProcessing);
     const bargeInMs = audioProcessing === 'native-aec3-v1' ? 240 : 400;
-    this.tickets.set(hash(clientSecret), { deviceId, agentId, origin, expiresAt, clientAEC, bargeInMs, bufferedBargeIn, callId: randomUUID() });
+    this.tickets.set(hash(clientSecret), { deviceId, agent, agentId: agent.id, origin, expiresAt, clientAEC, bargeInMs, bufferedBargeIn, callId: randomUUID() });
     const websocketUrl = new URL('/local/voice/realtime', origin); websocketUrl.protocol = websocketUrl.protocol === 'https:' ? 'wss:' : 'ws:';
     return { clientSecret, websocketUrl: websocketUrl.href, model: 'host-configured', expiresAtUnixSeconds: Math.floor(expiresAt / 1000) };
   }
@@ -33,7 +34,7 @@ export class Voice {
     const localDesktop = device.platform === 'desktop' && ['null', 'file://'].includes(request.headers.origin);
     check(!request.headers.origin || request.headers.origin === ticket.origin || localDesktop, 403, 'Voice origin does not match');
     check(this.sessions.size < 4 && !this.sessions.has(ticket.deviceId), 409, 'A voice call is already active');
-    this.config.resolveSynthesisConfig();
+    this.config.resolveSynthesisConfig(ticket.agent);
     this.tickets.delete(key);
     this.websockets.handleUpgrade(request, socket, head, ws => {
       this.connections.track(ticket.deviceId, socket);

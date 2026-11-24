@@ -35,3 +35,6 @@ android/shell/replay_pid*.log
 
 # Host service dependencies for local tests (the image installs its own)
 host/server/node_modules/
+
+# Local iOS native build cache
+ios/.runtime/

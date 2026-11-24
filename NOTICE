@@ -15,29 +15,31 @@ modifications below. The noncommercial conditions also apply to everything
 ProkBot Plus adds; none of it is offered under terms that allow commercial use.
 CHANGELOG.md lists the changes by release.
 
-Modifications made in ProkBot Plus (2026-11-07 to 2026-11-20)
+Modifications made in ProkBot Plus (2026-11-07 to 2026-11-24)
 --------------------------------------------------------------
 
 1. Windows x64 client (new)
    - windows/: patcher, recipes, per-user installer source (Go), prebuilt
      grokbot-tailcat.exe and installer stub, tests. The patcher builds from
-     the official Windows 1.1.0 installer by default and from 0.71.2 as a
-     fallback; inputs.mjs recognizes an input by size and SHA-256.
+     the official Windows 1.2.3 installer by default and from 1.1.0 / 0.71.2
+     as fallbacks; inputs.mjs recognizes an input by size and SHA-256.
    - windows/tools/desktop-recipes/: generator, anchored edit list and the
-     project code appended to original modules, producing the 1.1.0 recipes
-     from the user's own installer. The 0.71.2 recipes are ported from the
-     macOS recipes (windows/tools/port-desktop-recipes.mjs).
+     project code appended to original modules, producing the 1.2.3 recipes
+     for Windows x64, macOS ARM64, macOS Intel, Linux x64 and Linux ARM64
+     from the user's own original package. The 1.1.0 recipes come from the
+     same tool at commit 8c1fcd1; the 0.71.2 recipes were ported from the
+     earlier macOS 0.71.2 recipes.
    - windows/patchers/desktop/original.mjs: extraction of the official
      installer, shared with the Android and web client builders.
    - The installer tracks the files it owns, supports side-by-side migration
      of legacy installs and preserves occupied Start menu and URL entries.
 
 2. Shared desktop client (mac/clients/desktop/)
-   - Cross-platform changes shared by the macOS and Windows clients:
+   - Cross-platform changes shared by the macOS, Windows and Linux clients:
      platform.mjs, main.mjs, connection.mjs, settings.mjs, sounds.mjs,
      connect.css, native-provider.mjs, codex-bridge.mjs, codex-process.mjs,
-     local-exec.mjs (UTF-8 command output on Windows) and attachments.mjs
-     (POSIX Host image paths).
+     local-exec.mjs (UTF-8 command output on Windows, linux- machine ID on
+     Linux) and attachments.mjs (POSIX Host image paths).
    - The 1.1.0 interfaces: per-edge RPC registration and window visibility
      events (main.mjs, local-services.mjs), dictation through the Host
      (dictation.mjs), search mapping (gateway.mjs) and startup defaults.
@@ -48,14 +50,13 @@ Modifications made in ProkBot Plus (2026-11-07 to 2026-11-20)
    - workspace.css and workspace-keys.cjs: wide reply tables, dialog send
      shortcuts and empty catalog-search dismissal, shared with Android.
    - host/runtime/host-computers.mjs, native-desktop.mjs, codex-prompt.mjs and
-     host/server/desktop-capabilities.mjs: the Host recognizes Windows
-     computers and withholds desktop execution from phones and browsers.
-   - Intel macOS (experimental): mac/patchers/desktop/x64/ pins the official
-     0.71.2 Intel build and holds recipes ported from the Apple Silicon ones
-     (windows/tools/port-desktop-recipes.mjs --platform mac); patch.mjs picks
-     the build for the Mac's chip, native-helper.mjs accepts the Intel copy
-     of the computer helper, and mac/dist/network/x64/grokbot-tailcat is
-     built by host/network/build-tailcat.py --target darwin-amd64.
+     host/server/desktop-capabilities.mjs: the Host recognizes Windows and
+     Linux computers and withholds desktop execution from phones and browsers.
+   - Intel macOS: mac/patchers/desktop/x64/ pins the official Intel build;
+     patch.mjs picks the build for the Mac's chip, native-helper.mjs accepts
+     the Intel copy of the computer helper, and
+     mac/dist/network/x64/grokbot-tailcat is built by
+     host/network/build-tailcat.py --target darwin-amd64.
 
 3. Android client (new)
    - android/shell/: Android shell app (Kotlin, no third-party libraries):
@@ -148,8 +149,8 @@ Modifications made in ProkBot Plus (2026-11-07 to 2026-11-20)
     channel snapshots, release packaging and verification of nested ZIP, APK
     and gzip content, inactive workflow templates).
 
-11. Tests: host/tests/, windows/tests/, android/tests/, web/tests/ (new),
-    and mac/tests/ additions.
+11. Tests: host/tests/, windows/tests/, linux/tests/, android/tests/,
+    web/tests/ (new) and mac/tests/ additions.
 
 12. Documentation: README, docs/AI-INSTALL, docs/ARCHITECTURE (also covering
     the upstream DETAILS.md, TODO.md and install notes, and the maintenance
@@ -173,11 +174,78 @@ Modifications made in ProkBot Plus (2026-11-07 to 2026-11-20)
     version suffixes are accepted and --host-only is not gated. Contributed by
     @jun9100 (GitHub pull request #5). Clients are unchanged.
 
+14. Per-Bot voices. host/server/voice-selection.mjs (new), voice-config.mjs,
+    voice-synthesis.mjs, voice-session.mjs, voice.mjs and the admin voice page
+    (public/voice.js, speech.js, locales-en.js) match each Bot's name, title
+    and description against candidate voices on the Host, so every client
+    shares them; existing configurations keep the feature off. Contributed by
+    @jun9100 (GitHub pull request #10).
+
+15. Desktop 1.2.3 (Windows x64, macOS ARM64 and macOS Intel).
+    - windows/patchers/desktop/ pins the official 1.2.3 by default and keeps
+      1.1.0 (windows/patchers/desktop/1.1.0/) and 0.71.2 as fallbacks, which
+      Android and the web client continue to use.
+    - mac/patchers/desktop/ and mac/patchers/desktop/x64/ pin the official
+      1.2.3; native-helper.mjs accepts its universal CUGrokBotService helper.
+    - mac/clients/desktop/gateway.mjs and local-services.mjs answer the RPCs
+      1.2.3 adds; windows/tools/desktop-recipes/build.mjs builds all three
+      targets and --check compares decompressed recipes.
+    - Contributed by @jun9100 (GitHub pull request #11).
+
+16. Host compatibility and reliability.
+    - host/server/client-compat-api.mjs (new) answers the RPCs newer clients
+      forward to the Host that d0a4baa lacks: in-conversation search,
+      rerunning an automation from its card, an empty skill publishing target
+      list and an explicit failure for webhook runs. notifications.mjs replays
+      retained notifications in bounded, backpressured writes; proxy.mjs
+      waits up to 120 s for response headers.
+    - host/runtime/recovered-blob-worker.mjs and recovered-modules.mjs open a
+      large conversation-blobs.db with a structural probe and run quick_check
+      in a background thread; a corrupted database goes through the original
+      recovery on the next open. host/release/compose*.yaml pass
+      GROKBOT_BLOB_DB_QUICK_CHECK_MAX_BYTES.
+    - Contributed by @jun9100 (GitHub pull request #9).
+
+17. iOS 1.27.0.
+    - ios/recipes/ios/ pins the official 1.27.0 (build 29519) and keeps 1.26.0
+      (29388) and 1.16.0 (23152) as pinned fallbacks. ios/tools/hbc98/,
+      build_ios_127_recipe.py and build_ios_126_recipe.py rebuild the bytecode
+      recipes from the user's own app.
+    - ios/patchers/ios/ checks extensions per release and writes only the App
+      Groups a provisioning profile grants (extensions.py, signing.py,
+      patch-app.py).
+    - ios/clients/ios/ and ios/bin/GrokBotLocal.dylib: keychain credential
+      sync, sign-out from Settings, a Connect to Host entry on the sign-in
+      screen, NSURLSession protocol injection that keeps the app's own
+      session configuration, local Auto-review preferences and Pages RPC
+      forwarding. host/server/mobile-rpc-compat.mjs (new) answers the Pages
+      and MCP tool permission RPCs.
+    - Contributed by @jun9100 (GitHub pull request #14).
+
+18. Linux x64 / ARM64 desktop client (new).
+    - linux/: patcher, pure-Node .deb (ar) parser and verifier (deb.mjs),
+      recipes for 1.2.3 x64 and ARM64 generated by
+      windows/tools/desktop-recipes/build.mjs, portable launcher and per-user
+      install/uninstall/AppArmor scripts (launcher.mjs), tar.gz builder
+      (tar.mjs) and tests, reusing the Linux Tailcat binaries in host/bin/.
+      The install and uninstall scripts replace or remove only an empty
+      directory or an earlier Grok Bot Local install.
+    - mac/clients/desktop/: Linux window chrome, tray, keyring fallback,
+      notification sounds, linux- machine IDs and Codex delegation.
+      host/server/desktop-capabilities.mjs, push-service.mjs,
+      public/devices.js and host/runtime/host-computers.mjs recognize Linux
+      desktop clients. ci/release-packages.py builds a seventh, Linux package.
+    - Contributed by @jun9100 (GitHub pull request #16).
+
 Third-party components
 ----------------------
 
 Third-party components keep their own licenses. See host/THIRD_PARTY,
 mac/THIRD_PARTY, ios/THIRD_PARTY and mac/patchers/desktop/node_modules.
+ios/tools/hbc98/opcodes-v98.json derives its Hermes bytecode v98 opcode table
+from Meta's facebook/hermes (include/hermes/BCGen/HBC/BytecodeList.def, MIT
+License) using the JSON layout popularized by hbctool (MIT License); both
+license texts are included in ios/THIRD_PARTY/.
 android/shell/gradle/wrapper/ contains the Gradle Wrapper, and the prebuilt
 Android shell includes parts of the Kotlin standard library; both are
 licensed under the Apache License 2.0.

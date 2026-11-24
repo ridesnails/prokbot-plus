@@ -38,10 +38,13 @@ static id GBFindHost(void) {
 }
 static void GBLoad(id self, SEL cmd, NSURL *url, id progress, id completion) {
   GBHost = self;
-  NSURL *patched = GBConnection.shared.gatewayBundleURL;
-  GBLoadedPairedBundle = patched != nil;
-  GBDiagnosticsRecordBundle(url, patched ?: url);
-  ((void (*)(id, SEL, NSURL *, id, id))GBOriginalLoad)(self, cmd, patched ?: url, progress,
+  BOOL useEmbeddedBundle = [NSProcessInfo.processInfo.environment[@"GROKBOT_VALIDATE_EMBEDDED_BUNDLE"] boolValue];
+  NSURL *paired = GBConnection.shared.gatewayBundleURL;
+  NSURL *loaded = useEmbeddedBundle ? url : (paired ?: url);
+  GBLoadedPairedBundle = paired != nil && !useEmbeddedBundle;
+  GBDiagnosticsRecordBundle(url, loaded);
+  GBDiagnosticsEvent(@"bundle.mode", @{@"embedded":@(useEmbeddedBundle), @"paired":@(paired != nil)});
+  ((void (*)(id, SEL, NSURL *, id, id))GBOriginalLoad)(self, cmd, loaded, progress,
                                                        completion);
 }
 void GBReloadReactHost(void) {
@@ -53,8 +56,118 @@ void GBReloadReactHost(void) {
       ((void (*)(id, SEL))objc_msgSend)(host, reload);
   });
 }
+static NSSet<NSString *> *GBPrimaryLoginLabels(void) {
+  static NSSet<NSString *> *set;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    set = [NSSet setWithArray:@[
+      @"Sign in with Apple", @"通过 Apple 登录", @"透過 Apple 登入",
+      @"Log in", @"Login", @"Sign in", @"登录", @"登入", @"登陆",
+      @"登录或注册", @"Log in or sign up",
+      @"连接服务端", @"Connect to Host"
+    ]];
+  });
+  return set;
+}
+static NSSet<NSString *> *GBSecondaryLoginLabels(void) {
+  static NSSet<NSString *> *set;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    set = [NSSet setWithArray:@[
+      @"Continue with Google", @"用 Google 账号继续", @"使用 Google 繼續",
+      @"Continue with X", @"用 X 账号继续", @"使用 X 繼續",
+      @"Continue with email", @"用邮箱继续", @"使用電子郵件繼續",
+      @"Continue with phone", @"用手机号继续", @"使用電話號碼繼續",
+      @"Sign in with work account", @"Sign in with your work account",
+      @"Sign in with SuperGrok", @"使用 SuperGrok 登录", @"使用 SuperGrok 登入",
+      @"Sign in to Grok Bot"
+    ]];
+  });
+  return set;
+}
+static NSSet<NSString *> *GBSignOutLabels(void) {
+  static NSSet<NSString *> *set;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    set = [NSSet setWithArray:@[
+      @"Sign out", @"Log out", @"退出登录", @"登出", @"退出登入", @"退出账号", @"退出账户"
+    ]];
+  });
+  return set;
+}
+static BOOL GBIsPluginTag(NSInteger tag) {
+  return tag >= 731988 && tag <= 731999;
+}
+static BOOL GBHasAncestorPluginTag(UIView *view, NSInteger tag) {
+  for (UIView *v = view.superview; v; v = v.superview) {
+    if (v.tag == tag) return YES;
+    for (UIView *sub in v.subviews)
+      if (sub.tag == tag) return YES;
+  }
+  return NO;
+}
+static BOOL GBSubtreeHasStyledHostButton(UIView *root, UIView *excluding) {
+  if (!root || root == excluding || root.hidden || root.alpha < 0.01) return NO;
+  if (root.tag == 731991 && [root isKindOfClass:UIButton.class]) {
+    UIButton *btn = (UIButton *)root;
+    if (btn.configuration != nil) return YES;
+  }
+  for (UIView *child in root.subviews) {
+    if (GBSubtreeHasStyledHostButton(child, excluding)) return YES;
+  }
+  return NO;
+}
+static NSSet<NSString *> *GBSettingsContextLabels(void) {
+  static NSSet<NSString *> *set;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    set = [NSSet setWithArray:@[
+      @"dev-gateway@localhost", @"dev-gateway@localhost avatar",
+      @"Auto-review", @"自动审查", @"自動審查",
+      @"Appearance", @"外观", @"外觀",
+      @"Language", @"语言", @"語言",
+      @"Usage", @"用量",
+      @"Bot 电脑", @"Bot Computer"
+    ]];
+  });
+  return set;
+}
+static BOOL GBSubtreeContainsSettingsMarker(UIView *root, NSSet<NSString *> *markers, NSUInteger depth) {
+  if (!root || root.hidden || root.alpha < 0.01 || depth > 24) return NO;
+  if (root.tag == 731993 || root.tag == 731989) return YES;
+  NSString *raw = root.accessibilityLabel;
+  if ([root isKindOfClass:UILabel.class]) raw = ((UILabel *)root).text;
+  if (raw.length) {
+    NSString *trimmed = [raw stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if ([markers containsObject:trimmed]) return YES;
+  }
+  for (UIView *child in root.subviews) {
+    if (GBSubtreeContainsSettingsMarker(child, markers, depth + 1)) return YES;
+  }
+  return NO;
+}
+static BOOL GBIsSettingsSignOutContext(UIView *view) {
+  // Scope Sign out interception to the enclosing Settings/Account screen
+  // controller so similarly labeled buttons inside Connected Apps or OAuth
+  // sub-screens cannot accidentally disconnect the Host.
+  UIView *scope = nil;
+  for (UIResponder *responder = view.nextResponder; responder; responder = responder.nextResponder) {
+    if ([responder isKindOfClass:UIViewController.class]) {
+      scope = ((UIViewController *)responder).view;
+      break;
+    }
+  }
+  if (!scope) scope = view.window;
+  if (!scope) return NO;
+  return GBSubtreeContainsSettingsMarker(scope, GBSettingsContextLabels(), 0);
+}
+static void GBClearHostSettingsIdentifier(UIView *view) {
+  if ([view.accessibilityIdentifier isEqual:@"grokbot.host.settings"])
+    view.accessibilityIdentifier = nil;
+}
 @interface GBInterface : NSObject
 + (void)showConnection;
++ (void)confirmSignOut;
 + (void)refresh;
 @end
 @implementation GBInterface
@@ -67,23 +180,84 @@ void GBReloadReactHost(void) {
 + (void)showConnection {
   [GBConnection.shared show];
 }
-+ (void)replaceEntry:(UIView *)view {
-  if ((view.tag >= 731989 && view.tag <= 731999))
++ (void)confirmSignOut {
+  UIViewController *top = GBTopController();
+  if (!top) {
+    [GBConnection.shared disconnect];
     return;
-  NSString *label = view.accessibilityLabel;
+  }
+  if ([top isKindOfClass:UIAlertController.class])
+    return;
+  UIAlertController *alert = [UIAlertController
+      alertControllerWithTitle:GBL(@"退出登录？", @"Sign out?")
+                       message:GBL(@"将清除本机的 Host 地址与配对凭证，重新打开后需要重新连接 Host。",
+                                   @"This clears the saved Host address and pairing credential from this device.")
+                preferredStyle:UIAlertControllerStyleAlert];
+  [alert addAction:[UIAlertAction actionWithTitle:GBL(@"取消", @"Cancel")
+                                            style:UIAlertActionStyleCancel
+                                          handler:nil]];
+  [alert addAction:[UIAlertAction actionWithTitle:GBL(@"退出登录", @"Sign out")
+                                            style:UIAlertActionStyleDestructive
+                                          handler:^(UIAlertAction *action) {
+                                            [GBConnection.shared disconnect];
+                                          }]];
+  [top presentViewController:alert animated:YES completion:nil];
+}
++ (void)installHostButtonOn:(UIView *)view styled:(BOOL)styled {
+  UIButton *existing = (UIButton *)[view viewWithTag:731991];
+  if (existing) {
+    existing.frame = view.bounds;
+    return;
+  }
+  UIButton *button = [UIButton buttonWithType:styled ? UIButtonTypeSystem : UIButtonTypeCustom];
+  button.tag = 731991;
+  button.frame = view.bounds;
+  button.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+  button.accessibilityIdentifier = @"grokbot.host.settings";
+  button.accessibilityLabel = GBL(@"连接 Host", @"Connect to Host");
+  if (styled) {
+    UIButtonConfiguration *config = UIButtonConfiguration.filledButtonConfiguration;
+    config.title = GBL(@"连接 Host", @"Connect to Host");
+    config.image = [UIImage systemImageNamed:@"link"];
+    config.imagePadding = 8;
+    config.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
+    config.baseBackgroundColor = UIColor.labelColor;
+    config.baseForegroundColor = UIColor.systemBackgroundColor;
+    button.configuration = config;
+    button.layer.cornerRadius = MIN(view.bounds.size.height / 2.0, 26.0);
+    button.clipsToBounds = YES;
+  }
+  [button addTarget:self
+                action:@selector(showConnection)
+      forControlEvents:UIControlEventTouchUpInside];
+  view.userInteractionEnabled = YES;
+  [view addSubview:button];
+}
++ (void)replaceEntry:(UIView *)view {
+  if (GBIsPluginTag(view.tag))
+    return;
+  NSString *rawLabel = view.accessibilityLabel;
   if ([view isKindOfClass:UILabel.class])
-    label = ((UILabel *)view).text;
+    rawLabel = ((UILabel *)view).text;
   if ([view isKindOfClass:UIButton.class])
-    label = [((UIButton *)view) titleForState:UIControlStateNormal];
+    rawLabel = [((UIButton *)view) titleForState:UIControlStateNormal];
+  NSString *label = [rawLabel stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
   GBObserveAppLanguage(label);
-  NSSet *labels = [NSSet setWithArray:@[
-    @"Log in", @"Login", @"Sign in", @"登录", @"登入", @"登陆", @"登录或注册", @"Log in or sign up"
-  ]];
+  NSSet<NSString *> *primaryLogin = GBPrimaryLoginLabels();
+  NSSet<NSString *> *secondaryLogin = GBSecondaryLoginLabels();
+  NSSet<NSString *> *signOutLabels = GBSignOutLabels();
+  BOOL paired = GBConnection.shared.deviceToken.length > 0;
   for (UIView *child in [view.subviews copy]) {
+    if (child.tag == 731988 && (!paired || ![signOutLabels containsObject:label] || !GBIsSettingsSignOutContext(view)))
+      [child removeFromSuperview];
     if (child.tag == 731989 && ![@[@"用量", @"Usage"] containsObject:label])
       [child removeFromSuperview];
-    if (child.tag == 731991 && ![labels containsObject:label] && ![@[@"调试", @"Debug", @"link"] containsObject:label])
+    if (child.tag == 731991 &&
+        (paired || (![primaryLogin containsObject:label] && ![secondaryLogin containsObject:label] &&
+                    ![@[@"调试", @"Debug"] containsObject:label]))) {
       [child removeFromSuperview];
+      GBClearHostSettingsIdentifier(view);
+    }
     if (child.tag == 731992 && ![@[@"资料库", @"Library"] containsObject:label])
       [child removeFromSuperview];
     if (child.tag == 731993 && ![label isEqual:@"dev-gateway@localhost"] &&
@@ -98,6 +272,46 @@ void GBReloadReactHost(void) {
     return;
   if (GBReplacePushView(view))
     return;
+  Class fabricViewClass = NSClassFromString(@"RCTViewComponentView");
+  BOOL isFabricView = fabricViewClass && [view isKindOfClass:fabricViewClass];
+  if (isFabricView && paired && [signOutLabels containsObject:label] &&
+      view.bounds.size.width >= 60 && view.bounds.size.height >= 36 &&
+      GBIsSettingsSignOutContext(view)) {
+    UIButton *existing = (UIButton *)[view viewWithTag:731988];
+    if (existing) {
+      existing.frame = view.bounds;
+    } else {
+      UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
+      button.tag = 731988;
+      button.frame = view.bounds;
+      button.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+      button.accessibilityIdentifier = @"grokbot.host.signout";
+      button.accessibilityLabel = GBL(@"退出登录", @"Sign out");
+      [button addTarget:self
+                    action:@selector(confirmSignOut)
+          forControlEvents:UIControlEventTouchUpInside];
+      view.userInteractionEnabled = YES;
+      [view addSubview:button];
+    }
+    return;
+  }
+  if (isFabricView && !paired && [primaryLogin containsObject:label] && view.bounds.size.width >= 160 &&
+      view.bounds.size.height >= 40) {
+    if (GBHasAncestorPluginTag(view, 731991))
+      return;
+    BOOL useStyled = !GBSubtreeHasStyledHostButton(view.window, view);
+    view.accessibilityIdentifier = @"grokbot.host.settings";
+    [self installHostButtonOn:view styled:useStyled];
+    return;
+  }
+  if (isFabricView && !paired && [secondaryLogin containsObject:label] && view.bounds.size.width >= 160 &&
+      view.bounds.size.height >= 40) {
+    if (GBHasAncestorPluginTag(view, 731991))
+      return;
+    view.accessibilityIdentifier = @"grokbot.host.settings";
+    [self installHostButtonOn:view styled:NO];
+    return;
+  }
   if ([@[@"Bot 电脑", @"Bot Computer"] containsObject:label] && view.bounds.size.width > 300 &&
       view.bounds.size.height >= 44) {
     if (![view viewWithTag:731999]) {
@@ -114,12 +328,23 @@ void GBReloadReactHost(void) {
     }
     return;
   }
-  if (([@[@"调试", @"Debug", @"link", @"连接 Host", @"Host Connection"] containsObject:label]) && GBConnection.shared.deviceToken.length && view.bounds.size.width <= 88) {
+  if (!paired &&
+      [@[@"调试", @"Debug"] containsObject:label] && view.bounds.size.width > 200 &&
+      view.bounds.size.height >= 40) {
+    // Unpaired full-width Debug entry opens local Host setup.
+    if (GBHasAncestorPluginTag(view, 731991))
+      return;
+    view.accessibilityIdentifier = @"grokbot.host.settings";
+    [self installHostButtonOn:view styled:NO];
+    return;
+  }
+  if (([@[@"调试", @"Debug", @"link", @"连接 Host", @"Host Connection"] containsObject:label]) && paired && view.bounds.size.width <= 88) {
     // Keep the original toolbar and link icon; only route the original touch.
     view.accessibilityLabel = GBL(@"连接 Host", @"Host Connection");
     view.accessibilityIdentifier = @"grokbot.host.settings";
     return;
   }
+  GBClearHostSettingsIdentifier(view);
   if ([@[@"资料库", @"Library"] containsObject:label] && GBConnection.shared.deviceToken.length &&
       view.bounds.size.width > 20) {
     if (![view viewWithTag:731992]) {
@@ -143,7 +368,7 @@ void GBReloadReactHost(void) {
 }
 + (void)replaceLogin:(UIView *)view {
   [self replaceEntry:view];
-  if (view.tag >= 731989 && view.tag <= 731999) return;
+  if (GBIsPluginTag(view.tag)) return;
   for (UIView *child in view.subviews) [self replaceLogin:child];
 }
 + (void)refresh {
@@ -169,24 +394,25 @@ static void GBLayout(id self, SEL selector) {
 static void GBRecycle(id self, SEL selector) {
   GBResetProfileView(self);
   GBResetPushView(self);
+  GBClearHostSettingsIdentifier(self);
   for (UIView *child in [[self subviews] copy])
-    if (child.tag >= 731989 && child.tag <= 731999)
+    if (GBIsPluginTag(child.tag))
       [child removeFromSuperview];
   ((void (*)(id, SEL))GBOriginalRecycle)(self, selector);
 }
 static void GBTouches(id self, SEL selector, NSSet<UITouch *> *touches, UIEvent *event) {
+  // Fabric handles ancestor touches even when a native button receives them.
+  // Exclude plugin controls first so native buttons handle TouchUpInside cleanly.
+  for (UITouch *touch in touches)
+    for (UIView *v = touch.view; v; v = v.superview)
+      if (GBIsPluginTag(v.tag))
+        return;
   for (UITouch *touch in touches)
     for (UIView *v = touch.view; v; v = v.superview)
       if ([@[@"连接服务端", @"Connect to Host"] containsObject:v.accessibilityLabel] || [v.accessibilityIdentifier isEqual:@"grokbot.host.settings"] || ([v.accessibilityLabel isEqual:@"link"] && GBConnection.shared.deviceToken.length)) {
         [GBConnection.shared show];
         return;
       }
-  // Fabric handles ancestor touches even when a native button receives them.
-  // Exclude only plugin controls to prevent both local and cloud actions firing.
-  for (UITouch *touch in touches)
-    for (UIView *v = touch.view; v; v = v.superview)
-      if (v.tag >= 731989 && v.tag <= 731999)
-        return;
   ((void (*)(id, SEL, id, id))GBOriginalTouches)(self, selector, touches, event);
 }
 static id GBSimpleTask(id self, SEL selector, NSURLRequest *request) {

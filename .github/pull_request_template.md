@@ -5,6 +5,7 @@
 - [ ] `node --test "host/tests/*.test.mjs"`
 - [ ] `node --test "windows/tests/*.test.mjs"`
 - [ ] `node --test mac/tests/*.test.mjs`
+- [ ] `node --test "linux/tests/*.test.mjs"`
 - [ ] `node --test "android/tests/*.test.mjs"`
 - [ ] `node --test "web/tests/*.test.mjs"`
 - [ ] 改了 `android/shell/` 的话，已执行 `node android/shell/release-shell.mjs` / Rebuilt the prebuilt shell after changing `android/shell/`

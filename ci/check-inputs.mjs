@@ -1,7 +1,7 @@
 // Offline maintenance check: report what the build tools actually pin.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { join, relative } from 'node:path';
 import { inspectRecipe } from './recipe-pin.mjs';
@@ -61,12 +61,12 @@ async function checkDesktop(dir) {
   return { original, pins };
 }
 const desktopPins = {};
-for (const name of ['mac', 'windows']) {
+for (const name of ['mac', 'windows', 'linux']) {
   const { original, pins } = await checkDesktop(`${name}/patchers/desktop`);
   desktopPins[`${name}/patchers/desktop`] = { original, pins };
   versions[name] = original.version;
 }
-// The Intel macOS build of the same version, with recipes ported from the Apple silicon ones.
+// The Intel macOS build of the same version, generated from the same anchored desktop spec.
 {
   const dir = 'mac/patchers/desktop/x64';
   const { original, pins } = await checkDesktop(dir);
@@ -77,6 +77,19 @@ for (const name of ['mac', 'windows']) {
     [...arm.pins.keys()].map(target => target.replace(/-[\w-]{8}\.js$/, '.js')), `${dir}: recipe targets differ from Apple silicon`);
   desktopPins[dir] = { original, pins };
   versions.macIntel = original.version;
+}
+// The ARM64 Linux build of the same version, generated from the same anchored desktop spec.
+{
+  const dir = 'linux/patchers/desktop/arm64';
+  const { original, pins } = await checkDesktop(dir);
+  const x64 = desktopPins['linux/patchers/desktop'];
+  assert.equal(x64.original.architecture, 'x64');
+  assert.equal(original.architecture, 'arm64');
+  for (const key of ['version', 'preloadSha256']) assert.equal(original[key], x64.original[key], `${dir}: ${key} differs from Linux x64`);
+  assert.deepEqual([...pins.keys()].map(target => target.replace(/-[\w-]{8}\.js$/, '.js')).sort(),
+    [...x64.pins.keys()].map(target => target.replace(/-[\w-]{8}\.js$/, '.js')).sort(), `${dir}: recipe targets differ from Linux x64`);
+  desktopPins[dir] = { original, pins };
+  versions.linuxArm64 = original.version;
 }
 // Older Windows releases the patch still builds (the fallback), each in a directory named after its version.
 const windowsFallback = [];
@@ -99,5 +112,19 @@ assert.equal(await sha(android.shell.path), android.shell.sha256, 'Android shell
 const shell = verifyShellVersion(readZip(await bytes(android.shell.path)).entries, android.shell);
 const ios = await json('ios/recipes/ios/manifest.json');
 await checkRecipes('ios/recipes/ios', ios.resources, 'patch', ios.hbcSha256);
-assert.equal(await sha('ios/bin/GrokBotLocal.dylib'), ios.dylibSha256, 'iOS injected library digest mismatch');
-console.log(JSON.stringify({ ...versions, androidShell: `${shell.versionName} (${shell.versionCode})`, androidRenderer: [android.desktopVersion, ...(android.fallback ?? []).map(item => item.desktopVersion)].join(', '), ios: `${ios.version} (${ios.build})` }, null, 2));
+const iosDylibSha = await sha('ios/bin/GrokBotLocal.dylib');
+assert.equal(iosDylibSha, ios.dylibSha256, 'iOS injected library digest mismatch');
+const iosFallback = [];
+const iosSeen = new Set([`${ios.version} (${ios.build})`]);
+for (const entry of (await readdir(join(root, 'ios/recipes/ios'), { withFileTypes: true })).sort((a, b) => b.name.localeCompare(a.name))) {
+  if (!entry.isDirectory()) continue;
+  const dir = `ios/recipes/ios/${entry.name}`;
+  const fallback = await json(`${dir}/manifest.json`);
+  const key = `${fallback.version} (${fallback.build})`;
+  assert.ok(!iosSeen.has(key), `${dir}: duplicate iOS release ${key}`);
+  iosSeen.add(key);
+  await checkRecipes(dir, fallback.resources, 'patch', fallback.hbcSha256);
+  assert.equal(iosDylibSha, fallback.dylibSha256, `${dir}: iOS injected library digest mismatch`);
+  iosFallback.push(key);
+}
+console.log(JSON.stringify({ ...versions, androidShell: `${shell.versionName} (${shell.versionCode})`, androidRenderer: [android.desktopVersion, ...(android.fallback ?? []).map(item => item.desktopVersion)].join(', '), ios: `${ios.version} (${ios.build})`, ...(iosFallback.length ? { iosFallback } : {}) }, null, 2));

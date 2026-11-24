@@ -1,13 +1,13 @@
 {
-  "version": "0.71.2",
+  "version": "1.2.3",
   "bundleId": "com.anysphere.sand",
   "architecture": "arm64",
   "archive": {
-    "url": "https://downloads.cursor.com/grokbot/stable/darwin-arm64/0.71.2/Grok_Bot_0.71.2.dmg",
-    "bytes": 146985092,
-    "sha256": "a6e586f4f9857dc97fcae600d443a31a8e9b6f6e9e67f1e1d103135e77d260ad"
+    "url": "https://downloads.cursor.com/grokbot/stable/darwin-arm64/1.2.3/Grok_Bot_1.2.3.dmg",
+    "bytes": 159560653,
+    "sha256": "b7c6268d40bf92b43b6f2eddd733e4d5b5d36e229d2201d06298a19b0e62da08"
   },
-  "asarSha256": "055b087a9bacc3be4e5f80c468edf2fd031dd5b928ab2e7da7e01dd10de0e860",
-  "frameworkSha256": "5051b73970d17e4297bc1d94f0f3f9342149ef0e36a2b9f86f27ff1b108971f3",
-  "preloadSha256": "3996a35e9a1f38b0e6ee2de402064996ad24291518dc4e017280748e33b3be39"
+  "asarSha256": "84d8cddca0676154a8cae13ca1f4ce8cae1703fdfa1b7b0175c4395d95f702cf",
+  "frameworkSha256": "dd6f9a73c7d5aa0dba937e5b02fd70b19c8deb85ce28c3ac79a83ab24488dcf6",
+  "preloadSha256": "69558bc987aae4dd9567770229bfbec01fcbeb4f0065731ac7f6ec60f4ebcda2"
 }

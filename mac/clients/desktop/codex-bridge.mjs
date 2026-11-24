@@ -6,8 +6,8 @@ import { CodexProcess, findCodex } from './codex-process.mjs';
 
 const app = { bundleId: 'com.openai.codex', name: 'Codex' };
 // Tool text names the paired computer the way its owner knows it.
-const machine = process.platform === 'win32' ? 'Windows PC' : 'Mac';
-const pathKind = process.platform === 'win32' ? 'Windows' : 'Mac';
+const machine = process.platform === 'win32' ? 'Windows PC' : process.platform === 'linux' ? 'Linux PC' : 'Mac';
+const pathKind = process.platform === 'win32' ? 'Windows' : process.platform === 'linux' ? 'Linux' : 'Mac';
 const active = new Set(['starting', 'running', 'needs_input']);
 const text = value => typeof value === 'string' && value.length > 0 && value.length <= 100000;
 const outcome = value => ({ status: 'done', outputJson: JSON.stringify({ content: [{ type: 'text', text: JSON.stringify(value) }] }) });

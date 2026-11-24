@@ -26,7 +26,7 @@ jobs:
       - run: node --test "ci/*.test.mjs"
       # The Host admin service's own dependencies, for its route tests (the image installs them itself).
       - run: npm ci --prefix host/server --omit=dev --ignore-scripts
-      - run: node --test "host/tests/*.test.mjs" "mac/tests/*.test.mjs" "windows/tests/*.test.mjs" "android/tests/*.test.mjs" "web/tests/*.test.mjs"
+      - run: node --test "host/tests/*.test.mjs" "mac/tests/*.test.mjs" "windows/tests/*.test.mjs" "linux/tests/*.test.mjs" "android/tests/*.test.mjs" "web/tests/*.test.mjs"
       - if: runner.os == 'Windows'
         working-directory: windows/installer
         run: go test ./...

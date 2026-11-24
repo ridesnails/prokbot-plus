@@ -77,6 +77,11 @@ const markup = `<header class="page-header"><h1>语音</h1></header>
         ${row('音色 ID', '<input name="referenceId" autocomplete="off" spellcheck="false" placeholder="选择音色或填写 ID" />', { id: 'voice-reference-row' })}
         ${row('音色', '<input name="voice" autocomplete="off" spellcheck="false" />', { id: 'voice-name-row', hidden: true })}
       </div>
+      <div class="section-head voice-selection-head"><h2 class="section-title">自动选择</h2><div class="section-actions"><button id="voice-candidate-add" type="button" class="btn btn-sm">添加音色</button></div></div>
+      <div class="card">
+        ${row('按 Bot 资料自动选音色', '<input name="selectionEnabled" type="checkbox" role="switch" />', { hint: '<span class="row-hint">只匹配名称、标题和说明；没有关键词命中时使用上方默认音色。</span>' })}
+        <div id="voice-candidates"></div>
+      </div>
       <p id="voice-error" class="error" role="alert" hidden></p>
       <div class="actions"><button type="submit" class="btn btn-primary" disabled>保存</button></div>
     </section>

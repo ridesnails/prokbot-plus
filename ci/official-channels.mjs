@@ -10,12 +10,14 @@ const desktopDocs = 'https://docs.x.ai/grok-bot/deployment';
 const feeds = {
   windows: 'https://api2.cursor.sh/updates/api/download/stable/win32-x64-user/sand',
   mac: 'https://api2.cursor.sh/updates/api/download/stable/darwin-arm64/sand',
+  linux: 'https://api2.cursor.sh/updates/api/download/stable/linux-x64/sand',
   ios: `https://itunes.apple.com/lookup?id=${iosId}&country=us`,
 };
 const maxBytes = 128 * 1024;
 const timeoutMs = 10_000;
 const pins = {
   windows: 'windows/patchers/desktop/supported.json', mac: 'mac/patchers/desktop/supported.json',
+  linux: 'linux/patchers/desktop/supported.json',
   ios: 'ios/recipes/ios/manifest.json', android: 'android/patchers/supported.json',
   cloud: 'host/recipes/host/manifest.json',
 };
@@ -44,7 +46,14 @@ function sha256(value) {
   return value.toLowerCase();
 }
 
-function artifactUrl(channel, release, url) {
+function artifactUrl(channel, release, url, buildId = null) {
+  if (channel === 'linux') {
+    const ok = buildId !== null
+      ? url === `https://downloads.cursor.com/grokbot/stable/${buildId}/linux/x64/grok-bot_${release}_amd64.deb`
+      : typeof url === 'string' && new RegExp(`^https://downloads\\.cursor\\.com/grokbot/stable/[0-9a-f]{40}/linux/x64/grok-bot_${release.replaceAll('.', '\\.')}_amd64\\.deb$`, 'i').test(url);
+    check(ok, 'Unexpected Grok Bot artifact URL for this platform and version');
+    return url;
+  }
   const suffix = channel === 'windows' ? `win32-x64/${release}/Grok_Bot_${release}_Setup.exe`
     : `darwin-arm64/${release}/Grok_Bot_${release}.dmg`;
   check(url === `https://downloads.cursor.com/grokbot/stable/${suffix}`,
@@ -54,9 +63,9 @@ function artifactUrl(channel, release, url) {
 
 function desktopObservation(channel, data) {
   const release = version(data?.version);
-  const downloadUrl = artifactUrl(channel, release, data.downloadUrl);
-  check(typeof data.commitSha === 'string' && /^[0-9a-f]{40}$/i.test(data.commitSha),
+  check(typeof data?.commitSha === 'string' && /^[0-9a-f]{40}$/i.test(data.commitSha),
     'Expected commitSha (a build ID, not the installer SHA-256)');
+  const downloadUrl = artifactUrl(channel, release, channel === 'linux' ? data.debUrl : data.downloadUrl, data.commitSha);
   return { version: release, downloadUrl, buildId: data.commitSha, buildIdField: 'commitSha',
     publishedArchiveSha256: Object.hasOwn(data, 'sha256') ? sha256(data.sha256) : null };
 }
@@ -86,8 +95,8 @@ async function readPin(channel) {
   } catch {
     throw new Error(`Cannot read local pin: ${pins[channel]}`);
   }
-  if (channel === 'windows' || channel === 'mac') {
-    check(data.architecture === (channel === 'windows' ? 'x64' : 'arm64'), 'Unexpected pinned architecture');
+  if (channel === 'windows' || channel === 'mac' || channel === 'linux') {
+    check(data.architecture === (channel === 'mac' ? 'arm64' : 'x64'), 'Unexpected pinned architecture');
     const release = version(data.version);
     return { version: release, archiveUrl: artifactUrl(channel, release, data.archive?.url),
       archiveSha256: sha256(data.archive?.sha256) };
@@ -177,8 +186,8 @@ async function observe(channel, fetchImpl, deadline) {
 export async function discover({ phase = 'manual', fetchImpl = globalThis.fetch, deadline = timeoutMs } = {}) {
   check(Number.isSafeInteger(deadline) && deadline > 0 && deadline <= timeoutMs, 'Invalid request deadline');
   const checkedAt = new Date().toISOString();
-  const [windows, mac, ios] = await Promise.all(Object.keys(feeds).map(k => observe(k, fetchImpl, deadline)));
-  const channels = { windows, mac, ios };
+  const [windows, mac, linux, ios] = await Promise.all(Object.keys(feeds).map(k => observe(k, fetchImpl, deadline)));
+  const channels = { windows, mac, linux, ios };
   const renderer = { sourceChannel: 'windows', pinFile: pins.android, pinned: null, comparison: null };
   try {
     renderer.pinned = await readPin('android');

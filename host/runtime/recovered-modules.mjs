@@ -24,7 +24,8 @@ export function combineRecoveryPlans(plans) {
 }
 
 /** Construct shared module closures in dependency order before installing bundle bindings. */
-export async function constructRecoveredModules(plan, original, directory, label) {
+export async function constructRecoveredModules(plan, original, directory, label, options = {}) {
+  const overrides = options?.overrides ?? {};
   const bindings = {}, modules = [];
   for (const module of plan.modules) {
     const dependencies = {};
@@ -36,11 +37,14 @@ export async function constructRecoveredModules(plan, original, directory, label
     const factory = await import(pathToFileURL(join(directory, module.name)).href);
     const recovered = factory.createRecoveredModule(dependencies);
     for (const name of [...module.exports, ...module.sharedExports ?? []]) {
-      if (module.exports.includes(name) ? typeof recovered[name] !== 'function' : recovered[name] === undefined) {
+      const value = Object.hasOwn(overrides, name)
+        ? overrides[name](recovered[name], bindings, original)
+        : recovered[name];
+      if (module.exports.includes(name) ? typeof value !== 'function' : value === undefined) {
         throw new TypeError(`Invalid ${label} export: ${name}`);
       }
       if (Object.hasOwn(bindings, name)) throw new Error(`Duplicate ${label} binding: ${name}`);
-      bindings[name] = recovered[name];
+      bindings[name] = value;
     }
     modules.push({ file: module.name, bindings: module.exports, recoveredDependencies: module.recoveredDependencies,
       ...(module.sharedExports?.length ? { sharedBindings: module.sharedExports } : {}),

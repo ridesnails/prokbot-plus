@@ -39,11 +39,12 @@ test('the Intel recipes add the same code as the Apple silicon recipes', async (
   const [arm, x64] = await Promise.all(builds.map(build => json(`${build.inputs}/recipes/manifest.json`)));
   assert.equal(x64.files.length, arm.files.length);
   // Only the content hashes in renderer asset names differ between the two builds.
+  // Two chunks sharing a prefix (e.g. chunk-view-*) can sort in different hash order across builds.
   const mask = text => text.replace(/-[\w-]{8}(\.(?:js|css|svg|png|wav|mp3|webp|woff2?|json|wasm))/g, '-HASHHASH$1');
-  const added = async (inputs, entry) => JSON.parse(gunzipSync(await readFile(path.join(mac, inputs, 'recipes', entry.recipe))))
-    .ops.filter(op => op[0] === 'add').map(op => mask(Buffer.from(op[1], 'base64').toString('utf8')));
-  for (const [index, entry] of arm.files.entries()) {
-    assert.equal(mask(x64.files[index].path), mask(entry.path));
-    assert.deepEqual(await added(builds[1].inputs, x64.files[index]), await added(builds[0].inputs, entry), entry.path);
-  }
+  const summarize = async (inputs, manifest) => (await Promise.all(manifest.files.map(async entry => {
+    const added = JSON.parse(gunzipSync(await readFile(path.join(mac, inputs, 'recipes', entry.recipe))))
+      .ops.filter(op => op[0] === 'add').map(op => mask(Buffer.from(op[1], 'base64').toString('utf8')));
+    return { path: mask(entry.path), added };
+  }))).sort((a, b) => a.path.localeCompare(b.path) || JSON.stringify(a.added).localeCompare(JSON.stringify(b.added)));
+  assert.deepEqual(await summarize(builds[1].inputs, x64), await summarize(builds[0].inputs, arm));
 });

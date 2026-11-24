@@ -18,6 +18,12 @@ python3 deploy.py up
 
 新装默认只监听回环地址，自定义访问地址在 `init` 时指定（`python3 deploy.py init --help`）。已有实例用 `update`，不要重新 `init`。首次设置、模型和配对见部署手册。
 
+## 环境变量
+
+实例目录的 `.env` 可用于调整 Host 容器的运行参数（同机与独立 Host 部署均生效）：
+
+- `GROKBOT_BLOB_DB_QUICK_CHECK_MAX_BYTES`：大体积 `conversation-blobs.db` 快速打开的字节阈值，默认 `33554432`（32 MiB）。文件大于该阈值且无待恢复标记时，打开连接先做结构探针避免阻塞启动，再通过独立工作线程（`node:sqlite`）在主事件循环之外执行 `PRAGMA quick_check(1)`；若检测到损坏会写入 `.quickcheck-required`，下次打开自动回退到原版完整隔离与抢救流程。注意：`quick_check(1)` 只在报告第一条错误后提前停止，对健康的大库仍会完整读取整个文件；已验证标记按 `(size, mtimeMs)` 记录，WAL 检查点会更新文件元信息，因此活跃的大库在冷启动时通常会重新扫描（在后台线程进行，不阻塞主线程）。设为 `infinity` 则恢复每次打开都在主线程同步执行完整 `quick_check` 的原版行为。
+
 ## 离线构建
 
 构建工具默认从固定来源下载原版文件并严格校验，版本见 `recipes/host/manifest.json`。已有原版文件时：

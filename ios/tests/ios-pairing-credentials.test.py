@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""Regression checks for credentials written by the iOS pairing flow."""
+
+from pathlib import Path
+import unittest
+
+
+SOURCE = (
+    Path(__file__).resolve().parents[1] / "clients" / "ios" / "GBConnection.m"
+).read_text(encoding="utf-8")
+
+
+class PairingCredentialsTests(unittest.TestCase):
+    def test_pairing_syncs_app_intent_credentials_after_saving_token(self):
+        marker = "GBConnection.shared.deviceToken = token;"
+        source = SOURCE[SOURCE.index(marker) :]
+        sync = source.index("GBSyncAppIntentCredentials();")
+        dismiss = source.index("dismissViewControllerAnimated:YES", sync)
+        self.assertLess(sync, dismiss)
+
+    def test_both_restore_and_connection_edit_keep_the_sync(self):
+        self.assertGreaterEqual(SOURCE.count("GBSyncAppIntentCredentials();"), 4)
+
+    def test_disconnect_synchronizes_defaults_and_clears_paired_bundle_dir(self):
+        self.assertIn("standardUserDefaults synchronize", SOURCE)
+        self.assertIn('URLByAppendingPathComponent:@"GrokBotPaired"', SOURCE)
+
+    def test_bootstrap_intercepts_signout_and_login_screen_host_entry(self):
+        bootstrap = (
+            Path(__file__).resolve().parents[1] / "clients" / "ios" / "GBBootstrap.m"
+        ).read_text(encoding="utf-8")
+        app_intents = (
+            Path(__file__).resolve().parents[1] / "clients" / "ios" / "GBAppIntents.m"
+        ).read_text(encoding="utf-8")
+        self.assertIn("GBSignOutLabels", bootstrap)
+        self.assertIn("GBIsSettingsSignOutContext", bootstrap)
+        self.assertNotIn('@"Account", @"账户", @"帳戶"', bootstrap)
+        self.assertIn("GBClearHostSettingsIdentifier", bootstrap)
+        self.assertIn("GBHasAncestorPluginTag", bootstrap)
+        self.assertIn("GBSubtreeHasStyledHostButton", bootstrap)
+        self.assertIn("confirmSignOut", bootstrap)
+        self.assertIn("[GBConnection.shared disconnect]", bootstrap)
+        self.assertIn("GBPrimaryLoginLabels", bootstrap)
+        self.assertIn("GBSecondaryLoginLabels", bootstrap)
+        self.assertIn("isFabricView && !paired && [primaryLogin containsObject:label]", bootstrap)
+        self.assertIn("isFabricView && !paired && [secondaryLogin containsObject:label]", bootstrap)
+        self.assertIn('NSClassFromString(@"RCTViewComponentView")', bootstrap)
+        self.assertIn('@"Sign in with Apple"', bootstrap)
+        self.assertIn('@"退出登录"', bootstrap)
+        self.assertIn('GBDeleteAppIntentCredential(@"x.money.agent-connection-code:no-auth",\n                                @"grok-bot", defaultGroup);', app_intents)
+        self.assertIn('GBDeleteAppIntentCredential(@"app:no-auth",\n                                @"sand.cursor-tokens", nil);', app_intents)
+        connectors = (
+            Path(__file__).resolve().parents[1] / "clients" / "ios" / "GBConnectors.m"
+        ).read_text(encoding="utf-8")
+        diagnostics = (
+            Path(__file__).resolve().parents[1] / "clients" / "ios" / "GBDiagnostics.m"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("GBInstallSessionConfigurationProvider", connectors)
+        self.assertIn("sessionWithConfiguration:delegate:delegateQueue:", connectors)
+        self.assertIn("config.identifier.length", connectors)
+        self.assertIn("GBResolveReactSymbol", diagnostics)
+        self.assertIn('@"RCTFatalException"', diagnostics)
+
+
+if __name__ == "__main__":
+    unittest.main()

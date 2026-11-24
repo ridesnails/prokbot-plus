@@ -55,7 +55,7 @@ class Packages(unittest.TestCase):
         g('config', 'core.fileMode', 'false')  # Mirror a Windows checkout on all test platforms.
         g('config', 'core.bigFileThreshold', '1')  # Producing ZIPs must override machine settings.
         paths = set(r.COMMON[:-1] + r.TOOLS + r.EXECUTABLES)
-        for name in ('host', 'windows', 'mac', 'ios', 'android', 'web'):
+        for name in ('host', 'windows', 'mac', 'linux', 'ios', 'android', 'web'):
             paths.update(f'{name}/{leaf}' for leaf in ('README.md', 'README.en.md', 'extra.fixture'))
         paths.update(('docs/extra.fixture', 'ci/not-shipped', 'packages/not-shipped',
                       'tools/not-shipped', '.gitattributes', '.gitignore', 'windows/setup.bat'))
@@ -114,12 +114,13 @@ class Packages(unittest.TestCase):
         ctx.start()
         self.addCleanup(ctx.stop)
 
-    def test_build_and_reproduce_six_tool_packages(self):
+    def test_build_and_reproduce_seven_tool_packages(self):
         with patch.dict(os.environ, TZ='EST5EDT', GIT_DIR='not-the-fixture'), redirect_stdout(io.StringIO()) as report:
             self.assertEqual(r.release(self.repo, self.sha, self.out, helper_sums=self.pins), self.tip)
-        self.assertIn('verified packages=6', report.getvalue())
+        self.assertIn('verified packages=7', report.getvalue())
         data = files_at(self.out)
         expected = {'host': {'host'}, 'windows': {'windows', 'mac'}, 'mac': {'mac'},
+                    'linux': {'linux', 'mac', 'host/bin/grokbot-tailcat', 'host/bin/linux-arm64/grokbot-tailcat'},
                     'ios': {'ios'}, 'android': {'android', 'windows', 'mac'}, 'web': {'web', 'android', 'windows', 'mac'}}
         common = {'LICENSE', 'NOTICE', 'README.md', 'README.en.md', 'CHANGELOG.md', 'CONTRIBUTING.md', 'SECURITY.md', 'docs'}
         self.assertEqual(set(data), {f'prokbot-plus-{k}.zip' for k in expected} | {'SHA256SUMS.txt'})
@@ -128,7 +129,7 @@ class Packages(unittest.TestCase):
             with zipfile.ZipFile(io.BytesIO(data[f'prokbot-plus-{key}.zip'])) as z:
                 self.assertEqual(z.comment.decode(), self.sha)
                 files = {n for n in z.namelist() if not n.endswith('/')}
-                self.assertEqual(files, {n for n in self.payloads if n.partition('/')[0] in common | roots})
+                self.assertEqual(files, {n for n in self.payloads if any(n == root or n.startswith(root + '/') for root in common | roots)})
                 for n in files:
                     self.assertEqual(z.read(n), self.payloads[n])
                 for n in files.intersection(r.EXECUTABLES):
@@ -150,7 +151,7 @@ class Packages(unittest.TestCase):
         path.write_bytes(b'caller-owned')
         with self.assertRaisesRegex(r.ReleaseError, 'nothing was overwritten'):
             r.release(self.repo, self.sha, self.out)
-        with self.assertRaisesRegex(r.ReleaseError, 'exactly six'):
+        with self.assertRaisesRegex(r.ReleaseError, 'exactly seven'):
             r.release(self.repo, self.sha, self.out, verify_only=True)
         self.assertEqual(files_at(self.out), {path.name: b'caller-owned'})
 

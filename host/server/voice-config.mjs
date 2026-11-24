@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { JsonStore } from './storage.mjs';
 import { check, HttpError } from './security.mjs';
+import { selectVoiceCandidate } from './voice-selection.mjs';
 
 export const VOICE_OUTPUT = Object.freeze({ sampleRate: 24_000, channels: 1, encoding: 'pcm16le' });
 export const MAX_VOICE_TEXT = 8000;
@@ -12,7 +13,11 @@ export const voiceProviders = Object.freeze({
 const defaults = { version: 1, enabled: false, tts: {
   provider: 'fish', endpoint: voiceProviders.fish.endpoint, model: '', referenceId: '', voice: '',
   apiKeySource: 'own', apiKey: '', speed: 1, latency: 'balanced', timeoutMs: 60_000,
-} };
+}, selection: { enabled: true, candidates: [] } };
+const MAX_VOICE_CANDIDATES = 50;
+const MAX_CANDIDATE_KEYWORDS = 24;
+const MAX_CANDIDATE_LANGUAGES = 8;
+const disabledSelection = Object.freeze({ enabled: false, candidates: [] });
 
 function endpoint(value) {
   check(typeof value === 'string' && value.length <= 2048, 400, 'Invalid voice endpoint');
@@ -29,6 +34,41 @@ function field(value, label, max = 200) {
   check(typeof value === 'string' && value.length <= max && !/[\x00-\x1f\x7f]/.test(value),
     400, `Invalid voice ${label}`);
   return value.trim();
+}
+
+function list(value, label, maximum, itemMaximum, pattern) {
+  check(Array.isArray(value) && value.length <= maximum, 400, `Invalid voice ${label}`);
+  const result = value.map(item => field(item, label, itemMaximum));
+  check(result.every(item => pattern.test(item)), 400, `Invalid voice ${label}`);
+  return [...new Set(result)];
+}
+
+function voiceSelection(value = defaults.selection) {
+  check(value && typeof value === 'object' && !Array.isArray(value), 400, 'Invalid voice selection');
+  const enabled = value.enabled ?? true;
+  check(typeof enabled === 'boolean', 400, 'Invalid automatic voice selection value');
+  const candidates = value.candidates ?? [];
+  check(Array.isArray(candidates) && candidates.length <= MAX_VOICE_CANDIDATES, 400, 'Too many voice candidates');
+  const ids = new Set();
+  return { enabled, candidates: candidates.map(item => {
+    check(item && typeof item === 'object' && !Array.isArray(item), 400, 'Invalid voice candidate');
+    const id = field(item.id, 'candidate ID', 80);
+    check(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$/.test(id) && !ids.has(id), 400, 'Invalid voice candidate ID');
+    ids.add(id);
+    const provider = field(item.provider, 'candidate provider', 20);
+    check(Object.hasOwn(voiceProviders, provider), 400, 'Unknown voice provider');
+    const referenceId = field(item.referenceId ?? '', 'candidate reference ID');
+    const voice = field(item.voice ?? '', 'candidate voice');
+    check(provider === 'fish' ? Boolean(referenceId) && !voice : Boolean(voice) && !referenceId,
+      400, 'Voice candidate does not match its provider');
+    const name = field(item.name, 'candidate name', 120);
+    check(name, 400, 'Invalid voice candidate name');
+    return { id, name, provider, referenceId, voice,
+      keywords: list(item.keywords, 'candidate keywords', MAX_CANDIDATE_KEYWORDS, 80, /\S/u),
+      languages: list(item.languages ?? [], 'candidate languages', MAX_CANDIDATE_LANGUAGES, 20,
+        /^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})?$/),
+    };
+  }) };
 }
 
 /** Private TTS configuration; ASR continues to use the existing Speech service. */
@@ -51,6 +91,7 @@ export class VoiceConfig {
     return { enabled: this.store.value.enabled,
       asr: { source: 'speech', configured: Boolean(this.speech?.publicConfig().enabled) },
       tts: { ...tts, hasApiKey: Boolean(tts.apiKeySource === 'speech' ? this.speechKey(tts) : apiKey) },
+      selection: structuredClone(this.store.value.selection ?? disabledSelection),
       output: { ...VOICE_OUTPUT }, maxTextCharacters: MAX_VOICE_TEXT, maxConcurrent: MAX_VOICE_CONCURRENT };
   }
   validateReady(tts, status = 400) {
@@ -117,13 +158,22 @@ export class VoiceConfig {
       check(Number.isInteger(next.timeoutMs) && next.timeoutMs >= 1000 && next.timeoutMs <= 120_000,
         400, 'Voice timeout must be 1000–120000 ms');
       if (enabled) this.validateReady(next);
-      Object.assign(config, { enabled, tts: next });
+      // Legacy voice.json has no selection block. Keep its default voice until
+      // an administrator explicitly opts in instead of changing call behavior.
+      const selection = input.selection === undefined
+        ? voiceSelection(config.selection ?? disabledSelection)
+        : voiceSelection(input.selection);
+      Object.assign(config, { enabled, tts: next, selection });
     });
     return this.publicConfig();
   }
-  resolveSynthesisConfig() {
+  resolveSynthesisConfig(agent) {
     check(this.store.value.enabled, 503, 'Voice chat is not configured');
-    return this.validateReady(this.store.value.tts, 503);
+    const base = this.validateReady(this.store.value.tts, 503);
+    const selected = selectVoiceCandidate(this.store.value.selection ?? disabledSelection, base.provider, agent);
+    if (!selected) return base;
+    const { candidate } = selected;
+    return { ...base, referenceId: candidate.referenceId || base.referenceId, voice: candidate.voice || base.voice };
   }
   async close() { await this.store.tail; }
 }

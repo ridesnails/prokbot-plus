@@ -18,6 +18,12 @@ python3 deploy.py up
 
 A new installation listens only on loopback by default; set a custom address during `init` (`python3 deploy.py init --help`). For an existing instance use `update`, not another `init`. First-time setup, models and pairing are in the deployment guide.
 
+## Environment variables
+
+Settings in the instance `.env` file tune the Host container (applied to both single-machine and standalone Host deployments):
+
+- `GROKBOT_BLOB_DB_QUICK_CHECK_MAX_BYTES`: Byte threshold for fast-opening large `conversation-blobs.db` files, defaulting to `33554432` (32 MiB). When a database exceeds this size and has no pending recovery marker, open runs a structural probe to avoid startup stalls and then runs `PRAGMA quick_check(1)` off the main event loop in a worker thread using `node:sqlite`; if corruption is found, a `.quickcheck-required` marker is written so the next open falls back to the stock full quarantine and salvage flow. Note that `quick_check(1)` only stops after reporting the first error and still scans the entire file for healthy large databases; the verified stamp tracks `(size, mtimeMs)`, which WAL checkpoints update, so active large databases will typically rescan in the background on cold restarts. Set this to `infinity` to restore the original synchronous `quick_check` on every open.
+
 ## Offline builds
 
 By default the build downloads the originals from pinned sources and verifies them strictly; versions are in `recipes/host/manifest.json`. With the originals already at hand:

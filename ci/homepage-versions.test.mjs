@@ -66,10 +66,13 @@ test('without a fallback the patch shows a single accepted Windows release', asy
   }
 });
 
-test('Android names its interface release and fallback; Mac notes a newer official release', async () => {
+test('Android names its interface release and fallback; Mac and Linux note a newer official release', async () => {
   const data = await fixtureData();
   data.android = { ...data.android, desktopVersion: '1.1.0' }; data.androidFallback = ['0.71.2'];
   data.mac = { ...data.mac, version: '0.71.2' }; data.snap.mac = { ...data.snap.mac, version: '1.1.0' };
+  data.linux = { ...data.linux, version: '1.2.3', archive: { ...data.linux.archive, sha256: 'c'.repeat(64) } };
+  data.linuxArm64 = { ...data.linuxArm64, version: '1.2.3' };
+  data.snap.linux = { ...data.snap.linux, version: '1.3.0', observedArchiveSha256: 'd'.repeat(64) };
   const zh = render(fixture,'zh',data), en = render(fixture,'en',data);
   assert.ok(zh.includes('界面取自 Windows **1.1.0** 安装包（推荐；用不了再用 0.71.2）'));
   assert.ok(en.includes('interface taken from the Windows **1.1.0** installer (recommended; 0.71.2 if it does not work)'));
@@ -78,8 +81,19 @@ test('Android names its interface release and fallback; Mac notes a newer offici
     '(recommended; 0.71.2 if it does not work), built once and uploaded to your Host |'));
   assert.ok(zh.includes('| 0.71.2（尚未适配 1.1.0；未在 Mac 真机上测试） |'));
   assert.ok(en.includes('| 0.71.2 (not yet adapted to 1.1.0; not tested on a Mac) |'));
+  assert.ok(zh.includes('| Linux x64 / ARM64 | [1.3.0](https://api2.cursor.sh/updates/api/download/stable/linux-x64/sand)（此补丁不支持） | 1.2.3（尚未适配 1.3.0；.deb 原包；已在 WSL2 的 Ubuntu 22.04 x64 上实测，原生桌面和 ARM64 未实测） |'));
+  assert.ok(en.includes('| Linux x64 / ARM64 | [1.3.0](https://api2.cursor.sh/updates/api/download/stable/linux-x64/sand) (not supported by this patch) | 1.2.3 (not yet adapted to 1.3.0; .deb archive; tested on Ubuntu 22.04 x64 under WSL2; native desktops and ARM64 untested) |'));
   data.snap.mac.version = '0.71.2';
   assert.ok(render(fixture,'en',data).includes('| 0.71.2 (not tested on a Mac) |'));
+});
+
+test('iOS marks a newer observed App Store release unsupported but keeps the pinned build', async () => {
+  const data = await fixtureData();
+  data.ios = { ...data.ios, version: '1.26.0', build: '29388' };
+  data.snap.ios = { ...data.snap.ios, version: '1.27.0' };
+  const zh = render(fixture, 'zh', data), en = render(fixture, 'en', data);
+  assert.ok(zh.includes('| iOS | [1.27.0](https://apps.apple.com/us/app/grok-bot/id6794501026)（此补丁不支持） | 1.26.0（构建 29388；已在 iPad 上验证连接、发消息和 App Intent） |'));
+  assert.ok(en.includes('| iOS | [1.27.0](https://apps.apple.com/us/app/grok-bot/id6794501026) (not supported by this patch) | 1.26.0 (build 29388; pairing, messaging and App Intents verified on an iPad) |'));
 });
 
 test('vendor observation does not promote supported client, shell, or cloud inputs', async () => {

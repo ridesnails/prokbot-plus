@@ -11,8 +11,8 @@ void GBObserveAppLanguage(NSString *label) {
   // These labels are emitted by the original Lingui settings/account controls.
   // Observe their resolved language, so an in-app override wins over iOS locale.
   NSString *language = nil;
-  if ([@[@"账户", @"调试", @"用量", @"语言", @"连接服务端"] containsObject:label]) language = @"zh";
-  if ([@[@"Account", @"Debug", @"Usage", @"Language", @"Connect to Host"] containsObject:label]) language = @"en";
+  if ([@[@"账户", @"调试", @"用量", @"语言", @"连接服务端", @"退出登录", @"登出", @"通过 Apple 登录", @"透過 Apple 登入", @"用邮箱继续"] containsObject:label]) language = @"zh";
+  if ([@[@"Account", @"Debug", @"Usage", @"Language", @"Connect to Host", @"Sign out", @"Sign in with Apple", @"Continue with email"] containsObject:label]) language = @"en";
   if (language && ![language isEqual:[NSUserDefaults.standardUserDefaults stringForKey:GBLocaleKey]])
     [NSUserDefaults.standardUserDefaults setObject:language forKey:GBLocaleKey];
 }

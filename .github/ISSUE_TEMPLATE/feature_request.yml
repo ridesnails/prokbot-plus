@@ -6,7 +6,7 @@ body:
     id: part
     attributes:
       label: 相关部分 / Related part
-      options: [服务端 Host, Windows 客户端, Mac 客户端, iOS 客户端, Android 客户端, 网页版 / Web client, 新平台 / New platform, 文档 / Docs, 其他 / Other]
+      options: [服务端 Host, Windows 客户端, Mac 客户端, Linux 客户端, iOS 客户端, Android 客户端, 网页版 / Web client, 新平台 / New platform, 文档 / Docs, 其他 / Other]
     validations:
       required: true
   - type: textarea

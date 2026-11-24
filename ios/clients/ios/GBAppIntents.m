@@ -5,18 +5,105 @@
 #import "GBLocalize.h"
 #import <Security/Security.h>
 
-// The original Swift App Intents read this Expo SecureStore item directly,
-// independently of the React Native account state. Keep the original intent
-// implementation and give it a local identity; the transport owns device auth.
-void GBSyncAppIntentCredentials(void) {
-  NSDictionary *query = @{
+static NSString *GBAppIntentDefaultAccessGroup(void) {
+  NSString *identifier = NSBundle.mainBundle.bundleIdentifier;
+  NSString *prefix = [NSBundle.mainBundle objectForInfoDictionaryKey:
+      @"AppIdentifierPrefix"];
+  NSArray *groups = [NSBundle.mainBundle objectForInfoDictionaryKey:
+      @"SandKeychainAccessGroups"];
+  NSString *shared = [groups isKindOfClass:NSArray.class] ? groups.firstObject : nil;
+  if (!prefix.length) prefix = [shared componentsSeparatedByString:@"."].firstObject;
+  if (prefix.length && identifier.length)
+    return [prefix stringByAppendingFormat:@".%@", identifier];
+  return nil;
+}
+
+static NSString *GBAppIntentSharedAccessGroup(void) {
+  NSArray *groups = [NSBundle.mainBundle objectForInfoDictionaryKey:
+      @"SandKeychainAccessGroups"];
+  NSString *identifier = NSBundle.mainBundle.bundleIdentifier.lowercaseString;
+  NSString *suffix = [@"." stringByAppendingFormat:@"%@.shared", identifier];
+  for (NSString *group in [groups isKindOfClass:NSArray.class] ? groups : @[]) {
+    if ([group.lowercaseString hasSuffix:suffix]) return group;
+  }
+  return nil;
+}
+
+static OSStatus GBWriteAppIntentCredential(
+    NSString *service, NSString *account, NSString *group, NSData *data) {
+  NSMutableDictionary *query = [@{
     (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
-    (__bridge id)kSecAttrService: @"app:no-auth",
-    (__bridge id)kSecAttrAccount: @"sand.cursor-tokens"
-  };
+    (__bridge id)kSecAttrService: service,
+    (__bridge id)kSecAttrAccount: account
+  } mutableCopy];
+  if (group.length) query[(__bridge id)kSecAttrAccessGroup] = group;
+  NSMutableDictionary *attributes = [@{
+    (__bridge id)kSecValueData: data,
+    (__bridge id)kSecAttrGeneric: [account dataUsingEncoding:NSUTF8StringEncoding],
+    (__bridge id)kSecAttrAccessible: (__bridge id)kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+  } mutableCopy];
+  OSStatus status = SecItemUpdate((__bridge CFDictionaryRef)query,
+                                  (__bridge CFDictionaryRef)attributes);
+  if (status == errSecItemNotFound) {
+    NSMutableDictionary *item = query;
+    [item addEntriesFromDictionary:attributes];
+    status = SecItemAdd((__bridge CFDictionaryRef)item, NULL);
+  }
+  return status;
+}
+
+static OSStatus GBReadAppIntentCredential(
+    NSString *service, NSString *account, NSString *group, NSUInteger *length) {
+  NSMutableDictionary *query = [@{
+    (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+    (__bridge id)kSecAttrService: service,
+    (__bridge id)kSecAttrAccount: account,
+    (__bridge id)kSecReturnData: @YES,
+    (__bridge id)kSecMatchLimit: (__bridge id)kSecMatchLimitOne
+  } mutableCopy];
+  if (group.length) query[(__bridge id)kSecAttrAccessGroup] = group;
+  CFTypeRef value = NULL;
+  OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, &value);
+  if (status == errSecSuccess && value) {
+    *length = [(__bridge NSData *)value length];
+    CFRelease(value);
+  } else {
+    *length = 0;
+  }
+  return status;
+}
+
+static void GBDeleteAppIntentCredential(
+    NSString *service, NSString *account, NSString *group) {
+  NSMutableDictionary *query = [@{
+    (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+    (__bridge id)kSecAttrService: service,
+    (__bridge id)kSecAttrAccount: account
+  } mutableCopy];
+  if (group.length) query[(__bridge id)kSecAttrAccessGroup] = group;
+  SecItemDelete((__bridge CFDictionaryRef)query);
+}
+
+// The original Swift App Intents and the React Native TokenStore use different
+// SecureStore services. Keep both copies aligned with the local Host session;
+// the transport owns the real device authentication.
+void GBSyncAppIntentCredentials(void) {
   GBConnection *connection = GBConnection.shared;
+  NSString *defaultGroup = GBAppIntentDefaultAccessGroup();
+  NSString *sharedGroup = GBAppIntentSharedAccessGroup();
   if (!connection.serverURL.length || !connection.deviceToken.length) {
-    SecItemDelete((__bridge CFDictionaryRef)query);
+    GBDeleteAppIntentCredential(@"x.money.agent-connection-code:no-auth",
+                                @"grok-bot", defaultGroup);
+    GBDeleteAppIntentCredential(@"x.money.agent-connection-code:no-auth",
+                                @"grok-bot", sharedGroup);
+    GBDeleteAppIntentCredential(@"x.money.agent-connection-code:no-auth",
+                                @"grok-bot", nil);
+    GBDeleteAppIntentCredential(@"app:no-auth",
+                                @"sand.cursor-tokens", defaultGroup);
+    GBDeleteAppIntentCredential(@"app:no-auth",
+                                @"sand.cursor-tokens", sharedGroup);
+    GBDeleteAppIntentCredential(@"app:no-auth",
+                                @"sand.cursor-tokens", nil);
     return;
   }
   // Original Swift code derives the account ID from a JWT payload. This is an
@@ -27,23 +114,49 @@ void GBSyncAppIntentCredentials(void) {
     return [[[encoded stringByReplacingOccurrencesOfString:@"+" withString:@"-"]
       stringByReplacingOccurrencesOfString:@"/" withString:@"_"] stringByReplacingOccurrencesOfString:@"=" withString:@""];
   };
-  NSString *marker = [NSString stringWithFormat:@"%@.%@.local", base64url(@{@"alg":@"none",@"typ":@"JWT"}),
-    base64url(@{@"sub":@"grokbot-local",@"email":@"local@workspace.invalid"})];
+  NSDictionary *claims = @{
+    @"sub": @"grokbot-local",
+    @"email": @"local@workspace.invalid",
+    @"type": @"sand_mobile",
+    @"iat": @0,
+    @"exp": @4070908800LL
+  };
+  NSString *marker = [NSString stringWithFormat:@"%@.%@.local",
+    base64url(@{@"alg":@"none",@"typ":@"JWT"}), base64url(claims)];
   NSData *data = [NSJSONSerialization dataWithJSONObject:@{
     @"accessToken": marker,
+    @"refreshToken": marker,
     @"backendUrl": connection.serverURL
   } options:0 error:nil];
-  NSDictionary *attributes = @{
-    (__bridge id)kSecValueData: data,
-    (__bridge id)kSecAttrAccessible: (__bridge id)kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-  };
-  OSStatus status = SecItemUpdate((__bridge CFDictionaryRef)query, (__bridge CFDictionaryRef)attributes);
-  if (status == errSecItemNotFound) {
-    NSMutableDictionary *item = [query mutableCopy];
-    [item addEntriesFromDictionary:attributes];
-    status = SecItemAdd((__bridge CFDictionaryRef)item, NULL);
-  }
-  GBDiagnosticsEvent(@"app-intents.credentials", @{@"status":@(status)});
+  OSStatus tokenStoreStatus = GBWriteAppIntentCredential(
+      @"app:no-auth", @"sand.cursor-tokens", defaultGroup, data);
+  OSStatus appIntentStatus = GBWriteAppIntentCredential(
+      @"x.money.agent-connection-code:no-auth", @"grok-bot", sharedGroup, data);
+  NSUInteger tokenStoreLength = 0;
+  NSUInteger appIntentLength = 0;
+  NSUInteger ungroupedTokenStoreLength = 0;
+  NSUInteger sharedTokenStoreLength = 0;
+  OSStatus tokenStoreReadStatus = GBReadAppIntentCredential(
+      @"app:no-auth", @"sand.cursor-tokens", defaultGroup, &tokenStoreLength);
+  OSStatus appIntentReadStatus = GBReadAppIntentCredential(
+      @"x.money.agent-connection-code:no-auth", @"grok-bot",
+      sharedGroup, &appIntentLength);
+  OSStatus ungroupedTokenStoreReadStatus = GBReadAppIntentCredential(
+      @"app:no-auth", @"sand.cursor-tokens", nil, &ungroupedTokenStoreLength);
+  OSStatus sharedTokenStoreReadStatus = GBReadAppIntentCredential(
+      @"app:no-auth", @"sand.cursor-tokens", sharedGroup, &sharedTokenStoreLength);
+  GBDiagnosticsEvent(@"app-intents.credentials", @{
+    @"tokenStoreStatus": @(tokenStoreStatus),
+    @"appIntentStatus": @(appIntentStatus),
+    @"tokenStoreReadStatus": @(tokenStoreReadStatus),
+    @"appIntentReadStatus": @(appIntentReadStatus),
+    @"tokenStoreLength": @(tokenStoreLength),
+    @"appIntentLength": @(appIntentLength),
+    @"ungroupedTokenStoreReadStatus": @(ungroupedTokenStoreReadStatus),
+    @"ungroupedTokenStoreLength": @(ungroupedTokenStoreLength),
+    @"sharedTokenStoreReadStatus": @(sharedTokenStoreReadStatus),
+    @"sharedTokenStoreLength": @(sharedTokenStoreLength)
+  });
 }
 
 static NSString *GBIntentMethod(NSURLRequest *request) {

@@ -1,0 +1,18 @@
+{
+  "version": "1.1.0",
+  "architecture": "x64",
+  "archive": {
+    "url": "https://downloads.cursor.com/grokbot/stable/win32-x64/1.1.0/Grok_Bot_1.1.0_Setup.exe",
+    "bytes": 127403656,
+    "sha256": "01ccb10f2144ea0eb787042c54fc4b8ca2c6f43eccb7dabe5fe5eb86fa5ed044"
+  },
+  "payload": {
+    "name": "app-64.7z",
+    "bytes": 126478663,
+    "sha256": "475ecc4a825324114e3038008c84f77bce38402636fbecb23aa57d74762f0340"
+  },
+  "exeSha256": "ba2fd2e453fdde1aeb55ed56d75b4a954cf5ae4139c973c97c83520e1a20b6fa",
+  "asarSha256": "ae8f0a14fe65f421881f96fdcb66aaaaed8b28806f79d5239dbefec9ef2ea972",
+  "asarHeaderSha256": "9fb5f015b88ae9ae5da2033aa1c447b6ea57c26a53bf04bf56b4f4219d4baa6a",
+  "preloadSha256": "3204c8744260d6070dcffe2192b184bc6cdc9cb5d881d73e8b30c3517e91dac9"
+}

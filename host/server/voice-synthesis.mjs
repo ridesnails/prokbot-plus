@@ -58,11 +58,13 @@ export class VoiceSynthesis {
     this.limiter = new RateLimit();
     this.closed = false;
   }
-  async *stream(text, { signal } = {}) {
+  async *stream(text, { signal, agent } = {}) {
     check(!this.closed, 503, 'Voice service is shutting down');
     check(typeof text === 'string' && text.trim().length > 0, 400, 'Voice text is required');
     check(text.length <= MAX_VOICE_TEXT, 413, 'Voice text is too long');
-    const config = this.config.resolveSynthesisConfig();
+    // Every turn validates the latest Host configuration. When an agent is
+    // supplied, the configured deterministic selection applies its voice.
+    const config = this.config.resolveSynthesisConfig(agent);
     check(this.active.size < MAX_VOICE_CONCURRENT, 429, 'Voice synthesis is busy; try again');
     const request = synthesisRequest(text.trim(), config);
     const abort = new AbortController();

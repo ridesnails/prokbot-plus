@@ -115,6 +115,8 @@ class AdminUI(unittest.TestCase):
         if key == 'model' and req.method == 'PUT':
             self.saved, self.legacy = req.post_data_json, None
             model.update(routingMigrated=False, legacyAdaptiveRouting=False)
+        if key == 'voice' and req.method == 'PUT':
+            self.voice_saved = req.post_data_json
         fixtures = {'status': {'model': model, 'devices': [], 'pairingKeys': [], 'notifications': {},
                 'publicUrl': 'https://demo.example.invalid',
                 'host': {'connected': self.mode == 'ready', 'busy': False,
@@ -124,7 +126,8 @@ class AdminUI(unittest.TestCase):
             'profile': {'displayName': 'Demo workspace', 'hostName': 'Demo Host', 'avatarDataUrl': None},
             'usage': {'requests': 0}, 'speech': {'enabled': False, 'provider': 'fish'},
             'voice': {'enabled': True, 'asr': {'configured': False}, 'tts': {'provider': 'openai',
-                'endpoint': 'https://voice.example.invalid', 'model': 'demo', 'voice': 'demo', 'speed': 1}},
+                'endpoint': 'https://voice.example.invalid', 'model': 'demo', 'voice': 'demo', 'speed': 1},
+                'selection': {'enabled': True, 'candidates': []}},
             'media': {'defaults': {}}, 'web-services': {'defaults': {}}, 'harness': {}, 'skills': [],
             'apps': {'apps': []}, 'network': {'enabled': False}, 'execution': {'enabled': False, 'url': '', 'name': 'Demo node'},
             'federation': {'peers': []}, 'webhooks': [], 'sharing': [],
@@ -342,6 +345,31 @@ class AdminUI(unittest.TestCase):
             button.press('Enter')
         expect(page.locator('#auth-error')).to_have_text('Session expired. Sign in again.')
         expect(page.locator('#console')).to_be_hidden()
+
+    def test_voice_candidates_save_matching_metadata(self):
+        page = self.start(view='speech')
+        page.locator('#voice-candidate-add').click()
+        dialog = page.locator('dialog[open]')
+        self.assertEqual(dialog.locator('button[data-close].icon-btn').get_attribute('aria-label'), 'Close')
+        self.assertIn('OpenAI Compatible', dialog.locator('[name=provider] option[value=openai]').inner_text())
+        dialog.locator('[name=name]').fill('Incomplete voice')
+        dialog.locator('button[type=submit]').click()
+        expect(dialog.locator('[data-candidate-error]')).to_be_visible()
+        dialog.locator('[name=name]').fill('Research voice')
+        dialog.locator('[name=provider]').select_option('openai')
+        dialog.locator('[name=voice]').fill('sage')
+        dialog.locator('[name=keywords]').fill('研究、分析；research, analysis')
+        dialog.locator('[name=languages]').fill('zh、en')
+        dialog.locator('button[type=submit]').click()
+        expect(page.locator('#voice-candidates')).to_contain_text('Research voice')
+        with page.expect_request(lambda r: r.url.endswith('/admin/api/voice') and r.method == 'PUT'):
+            page.locator('#voice-form button[type=submit]').click()
+        saved = self.voice_saved
+        self.capture('voice-selection', saved=saved)
+        self.assertEqual(saved['selection'], {'enabled': True, 'candidates': [
+            {'id': saved['selection']['candidates'][0]['id'], 'name': 'Research voice', 'provider': 'openai',
+             'referenceId': '', 'voice': 'sage', 'keywords': ['研究', '分析', 'research', 'analysis'], 'languages': ['zh', 'en']}
+        ]})
 
 
 if __name__ == '__main__':

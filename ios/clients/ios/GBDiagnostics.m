@@ -6,6 +6,7 @@
 #import <UIKit/UIKit.h>
 #import <mach-o/dyld.h>
 #import <CommonCrypto/CommonDigest.h>
+#import <dlfcn.h>
 #import <sys/sysctl.h>
 #import <objc/runtime.h>
 static NSDictionary *GBLoadedBundle;
@@ -27,6 +28,55 @@ void GBDiagnosticsObserveTask(NSURLSessionTask *task) {
   [task addObserver:observer forKeyPath:@"state" options:NSKeyValueObservingOptionNew context:nil];
 }
 static IMP GBOriginalNetworkComplete, GBOriginalSplashReady;
+typedef void (^GBRCTFatalHandler)(NSError *);
+static GBRCTFatalHandler GBPreviousFatalHandler;
+static IMP GBOriginalReportFatalException;
+static IMP GBOriginalReportSoftException;
+static IMP GBOriginalReportException;
+static IMP GBOriginalReportFatal;
+static IMP GBOriginalReportSoft;
+static void GBReportFatal(id self, SEL selector, NSString *message, NSArray *stack,
+                          double exceptionId, NSString *extraDataAsJSON) {
+  GBDiagnosticsEvent(@"javascript.fatal", @{
+    @"message": message ?: @"",
+    @"stack": stack ?: @[],
+    @"exceptionId": @(exceptionId),
+    @"extraDataAsJSON": extraDataAsJSON ?: @""
+  });
+  ((void (*)(id, SEL, NSString *, NSArray *, double, NSString *))GBOriginalReportFatal)(
+      self, selector, message, stack, exceptionId, extraDataAsJSON);
+}
+static void GBReportSoft(id self, SEL selector, NSString *message, NSArray *stack,
+                         double exceptionId, NSString *extraDataAsJSON) {
+  GBDiagnosticsEvent(@"javascript.soft", @{
+    @"message": message ?: @"",
+    @"stack": stack ?: @[],
+    @"exceptionId": @(exceptionId),
+    @"extraDataAsJSON": extraDataAsJSON ?: @""
+  });
+  ((void (*)(id, SEL, NSString *, NSArray *, double, NSString *))GBOriginalReportSoft)(
+      self, selector, message, stack, exceptionId, extraDataAsJSON);
+}
+static void GBFatal(id self, SEL selector, NSString *message, NSArray *stack, double exceptionId) {
+  GBDiagnosticsEvent(@"javascript.fatal", @{
+    @"message": message ?: @"",
+    @"stack": stack ?: @[]
+  });
+  ((void (*)(id, SEL, NSString *, NSArray *, double))GBOriginalReportFatalException)(
+      self, selector, message, stack, exceptionId);
+}
+static void GBSoft(id self, SEL selector, NSString *message, NSArray *stack, double exceptionId) {
+  GBDiagnosticsEvent(@"javascript.soft", @{
+    @"message": message ?: @"",
+    @"stack": stack ?: @[]
+  });
+  ((void (*)(id, SEL, NSString *, NSArray *, double))GBOriginalReportSoftException)(
+      self, selector, message, stack, exceptionId);
+}
+static void GBReport(id self, SEL selector, void *data) {
+  GBDiagnosticsEvent(@"javascript.exception", @{});
+  ((void (*)(id, SEL, void *))GBOriginalReportException)(self, selector, data);
+}
 static void GBSplashReady(id self, SEL selector) {
   GBDiagnosticsEvent(@"splash.appReady", @{});
   ((void (*)(id,SEL))GBOriginalSplashReady)(self,selector);
@@ -90,9 +140,75 @@ void GBDiagnosticsRecordBundle(NSURL *requested, NSURL *loaded) {
   if (getenv("GROKBOT_VALIDATE_CAPTURE"))
     GBLoadedBundle = @{@"requested":GBBundleDescription(requested), @"loaded":GBBundleDescription(loaded)};
 }
+static void *GBResolveReactSymbol(const char *symbolName) {
+  void *sym = dlsym(RTLD_DEFAULT, symbolName);
+  if (sym) return sym;
+  const char *classImage = class_getImageName(NSClassFromString(@"RCTExceptionsManager"));
+  if (classImage) {
+    void *image = dlopen(classImage, RTLD_LAZY | RTLD_NOLOAD);
+    if (image) {
+      sym = dlsym(image, symbolName);
+      dlclose(image);
+      if (sym) return sym;
+    }
+  }
+  for (uint32_t i = 0; i < _dyld_image_count(); i++) {
+    const char *path = _dyld_get_image_name(i);
+    if (!path || !strstr(path, "/React.framework/React")) continue;
+    void *image = dlopen(path, RTLD_LAZY | RTLD_NOLOAD);
+    if (image) {
+      sym = dlsym(image, symbolName);
+      dlclose(image);
+      if (sym) return sym;
+    }
+  }
+  return NULL;
+}
 __attribute__((constructor)) static void GBInstallDiagnostics(void) {
   if (!getenv("GROKBOT_VALIDATE_CAPTURE"))
     return;
+  typedef void (*GBSetFatalHandler)(GBRCTFatalHandler);
+  typedef GBRCTFatalHandler (*GBGetFatalHandler)(void);
+  GBSetFatalHandler setFatalHandler =
+      (GBSetFatalHandler)GBResolveReactSymbol("RCTSetFatalHandler");
+  GBGetFatalHandler getFatalHandler =
+      (GBGetFatalHandler)GBResolveReactSymbol("RCTGetFatalHandler");
+  if (setFatalHandler) {
+    GBPreviousFatalHandler = getFatalHandler ? getFatalHandler() : nil;
+    setFatalHandler(^(NSError *error) {
+      GBDiagnosticsEvent(@"native.fatal", @{
+        @"domain": error.domain ?: @"",
+        @"code": @(error.code),
+        @"reason": error.localizedDescription ?: @""
+      });
+      if (GBPreviousFatalHandler) {
+        GBPreviousFatalHandler(error);
+      } else {
+        // Match React Native's default fatal handler by raising an NSException
+        // instead of swallowing the fatal error during validation runs.
+        [NSException raise:@"RCTFatalException"
+                    format:@"Unhandled React Native fatal error: %@",
+                           error.localizedDescription ?: @"(unknown)"];
+      }
+    });
+  }
+  Class exceptions = NSClassFromString(@"RCTExceptionsManager");
+  Method fatalWithExtra = class_getInstanceMethod(
+      exceptions, NSSelectorFromString(@"reportFatal:stack:exceptionId:extraDataAsJSON:"));
+  Method softWithExtra = class_getInstanceMethod(
+      exceptions, NSSelectorFromString(@"reportSoft:stack:exceptionId:extraDataAsJSON:"));
+  Method fatal = class_getInstanceMethod(
+      exceptions, @selector(reportFatalException:stack:exceptionId:));
+  Method soft = class_getInstanceMethod(
+      exceptions, @selector(reportSoftException:stack:exceptionId:));
+  Method report = class_getInstanceMethod(exceptions, @selector(reportException:));
+  if (fatalWithExtra)
+    GBOriginalReportFatal = method_setImplementation(fatalWithExtra, (IMP)GBReportFatal);
+  if (softWithExtra)
+    GBOriginalReportSoft = method_setImplementation(softWithExtra, (IMP)GBReportSoft);
+  if (fatal) GBOriginalReportFatalException = method_setImplementation(fatal, (IMP)GBFatal);
+  if (soft) GBOriginalReportSoftException = method_setImplementation(soft, (IMP)GBSoft);
+  if (report) GBOriginalReportException = method_setImplementation(report, (IMP)GBReport);
   Method networkComplete = class_getInstanceMethod(NSClassFromString(@"RCTHTTPRequestHandler"), @selector(URLSession:task:didCompleteWithError:));
   if (networkComplete) GBOriginalNetworkComplete = method_setImplementation(networkComplete,(IMP)GBNetworkComplete);
   for (NSString *name in @[@"RCTJavaScriptWillStartLoadingNotification", @"RCTJavaScriptWillStartExecutingNotification", @"RCTJavaScriptDidLoadNotification", @"RCTContentDidAppearNotification"])

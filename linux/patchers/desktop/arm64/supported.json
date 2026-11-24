@@ -1,0 +1,18 @@
+{
+  "version": "1.2.3",
+  "architecture": "arm64",
+  "archive": {
+    "url": "https://downloads.cursor.com/grokbot/stable/a5927fa2ba82336a29f9343babd28b4c903abbb2/linux/arm64/grok-bot_1.2.3_arm64.deb",
+    "bytes": 113334432,
+    "sha256": "e60b424d5c16d9d17246aa947cd4a288038eec274a749d72f97afcd711c4750e"
+  },
+  "payload": {
+    "name": "data.tar.xz",
+    "bytes": 113326256,
+    "sha256": "8fbad2e396eb4f100e091703a42e0cdaf9a20671140d3f4b65e87616706d7f96"
+  },
+  "exeSha256": "96e7f6a29c1b950873ebc847a771208b6a24655ff68da04cfbdfab0d1c6e415e",
+  "asarSha256": "7aea1daa0934b27ab5e7ab3c7307d10d3c3a96d93162267f611f4c05d203e609",
+  "asarHeaderSha256": "b4a8d7406bb7a5f018f53d9034eb2b0c78e1f9533856153f4da1b43822009b2d",
+  "preloadSha256": "69558bc987aae4dd9567770229bfbec01fcbeb4f0065731ac7f6ec60f4ebcda2"
+}

@@ -6,8 +6,8 @@ import { VoicePlayback } from './voice-playback.mjs';
 
 /** Adapts the original client's realtime events to Host voice turns and configurable speech services. */
 export class VoiceSession {
-  constructor({ ws, speech, synthesis, hostCall, agentId, callId = randomUUID(), clientAEC = false, bargeInMs = 400, bufferedBargeIn = false, onClose }) {
-    Object.assign(this, { ws, speech, synthesis, callId, clientAEC, bargeInMs, bufferedBargeIn, onClose });
+  constructor({ ws, speech, synthesis, hostCall, agent, agentId, callId = randomUUID(), clientAEC = false, bargeInMs = 400, bufferedBargeIn = false, onClose }) {
+    Object.assign(this, { ws, speech, synthesis, agent, callId, clientAEC, bargeInMs, bufferedBargeIn, onClose });
     this.host = createVoiceHostSession({ hostCall, agentId, callId });
     this.closed = false; this.jobs = new Set(); this.limiter = new RateLimit(); this.playback = new Map();
     this.speaker = new VoicePlayback();
@@ -125,7 +125,7 @@ export class VoiceSession {
         item: { id: itemId, type: 'message', role: 'assistant', status: 'in_progress', content: [] } });
       this.emit('response.audio_transcript.delta', { response_id: responseId, item_id: itemId, output_index: 0, content_index: 0, delta: reply.text });
       this.playback.set(itemId, { id, text: reply.text });
-      for await (const chunk of this.synthesis.stream(reply.text, { signal })) {
+      for await (const chunk of this.synthesis.stream(reply.text, { signal, agent: this.agent })) {
         signal.throwIfAborted();
         this.speaker.append(itemId, chunk.length);
         if (!this.clientAEC) this.vad.clear();

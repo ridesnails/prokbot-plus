@@ -78,7 +78,7 @@ The web client can open from the home screen like an app, full screen and withou
 
 ## Notes and limitations
 
-- **Only the Bot's computer on the Host.** The web client cannot let a Bot operate the device you are using or run commands on it; use the Windows or Mac client for that. "Teach the Bot a task" (recording a demonstration) is not available.
+- **Only the Bot's computer on the Host.** The web client cannot let a Bot operate the device you are using or run commands on it; use the Windows, Mac or Linux client for that. "Teach the Bot a task" (recording a demonstration) is not available.
 - **No Tailcat.** For access from outside, use a VPN, a tunnel or an HTTPS domain. The web client connects only to the Host that serves the page; to use another Host, open that Host's web client.
 - **Plain http works, but a few features need https.** Browsers allow the microphone, dictation and notifications only on https (or local `localhost`), so these are unavailable on an http address, and the Bot's computer screen shows a one-line "not encrypted" note (operation is unaffected). Always set up https for use over the internet.
 - **No notifications once the page is closed.** For background notifications, use the Android or iOS client, or set up Bark push on the admin page.

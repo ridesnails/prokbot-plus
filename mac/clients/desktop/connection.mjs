@@ -5,10 +5,28 @@ import path from 'node:path';
 import os from 'node:os';
 import { TailcatProcess, tailcatLink } from '../shared/tailcat-process.mjs';
 
-export function credentialUnavailableText() {
-  return process.platform === 'darwin'
-    ? grokText('请解锁 macOS 钥匙串。', 'Unlock your macOS keychain.')
-    : grokText('系统凭据加密不可用，请确认已登录 Windows 账户。', 'System credential encryption is unavailable. Sign in to your Windows account.');
+export function credentialUnavailableText(platform = process.platform) {
+  if (platform === 'darwin') return grokText('请解锁 macOS 钥匙串。', 'Unlock your macOS keychain.');
+  if (platform === 'linux') {
+    return grokText(
+      '系统凭据加密不可用，请确认已启用系统密钥环（GNOME Keyring / KWallet）。',
+      'System credential encryption is unavailable. Ensure a desktop keyring (GNOME Keyring or KWallet) is running.',
+    );
+  }
+  return grokText('系统凭据加密不可用，请确认已登录 Windows 账户。', 'System credential encryption is unavailable. Sign in to your Windows account.');
+}
+
+// On Linux without a running Secret Service daemon (e.g. minimal window managers),
+// Electron selects the basic_text backend and returns false until opted in, matching
+// the original Linux client's behavior. Saved files still use mode 0600 in a 0700 dir.
+export function ensureCredentialEncryption(safeStorage, platform = process.platform) {
+  if (!safeStorage) return false;
+  if (platform === 'linux' && !safeStorage.isEncryptionAvailable()) {
+    try {
+      if (safeStorage.getSelectedStorageBackend?.() === 'basic_text') safeStorage.setUsePlainTextEncryption?.(true);
+    } catch {}
+  }
+  return Boolean(safeStorage.isEncryptionAvailable());
 }
 
 export async function openTransport(address, enabled, { identity, binary } = {}) {
@@ -90,12 +108,12 @@ export async function verifyDevice(server, { token, deviceId }, fetcher = fetch)
   throw new Error(grokText('无法验证此 Host 的设备凭据。', 'Could not verify this device with the Host.'));
 }
 
-export function credentialStore(profile, safeStorage) {
+export function credentialStore(profile, safeStorage, platform = process.platform) {
   const filename = path.join(profile, 'connection.json');
   let writes = Promise.resolve();
   const update = task => { writes = writes.catch(() => {}).then(task); return writes; };
   function available() {
-    if (!safeStorage.isEncryptionAvailable()) throw new Error(credentialUnavailableText());
+    if (!ensureCredentialEncryption(safeStorage, platform)) throw new Error(credentialUnavailableText(platform));
   }
   return {
     async load() {

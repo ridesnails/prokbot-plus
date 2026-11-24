@@ -1,4 +1,4 @@
-"""Build the six ProkBot Plus tool ZIPs, or check an existing set against Git.
+"""Build the seven ProkBot Plus tool ZIPs, or check an existing set against Git.
 
 Use a clean checkout at the full commit ID and a fresh, caller-verified local
 remote-tracking ref. Reachability is offline evidence, not a live remote check.
@@ -26,6 +26,7 @@ SUMS = 'SHA256SUMS.txt'
 COMMON = ('LICENSE', 'NOTICE', 'README.md', 'README.en.md', 'CHANGELOG.md',
           'CONTRIBUTING.md', 'SECURITY.md', 'docs')
 PACKAGES = {'host': ('host',), 'windows': ('windows', 'mac'), 'mac': ('mac',),
+            'linux': ('linux', 'mac', 'host/bin/grokbot-tailcat', 'host/bin/linux-arm64/grokbot-tailcat'),
             'ios': ('ios',), 'android': ('android', 'windows', 'mac'), 'web': ('web', 'android', 'windows', 'mac')}
 # A faithful archive of an incomplete commit is still not a usable tool package.
 TOOLS = ('docs/AI-INSTALL.md', 'docs/AI-INSTALL.en.md', 'docs/ARCHITECTURE.md', 'docs/ARCHITECTURE.en.md',
@@ -33,7 +34,9 @@ TOOLS = ('docs/AI-INSTALL.md', 'docs/AI-INSTALL.en.md', 'docs/ARCHITECTURE.md', 
          'host/tools/host-admin.mjs', 'host/recipes/host/manifest.json',
          'windows/patchers/desktop/patch.mjs', 'windows/patchers/desktop/original.mjs',
          'windows/patchers/desktop/supported.json', 'windows/patchers/desktop/recipes/manifest.json',
-         'windows/patchers/desktop/inputs.mjs', 'windows/patchers/desktop/0.71.2/supported.json',
+         'windows/patchers/desktop/inputs.mjs', 'windows/patchers/desktop/1.1.0/supported.json',
+         'windows/patchers/desktop/1.1.0/recipes/manifest.json', 'windows/patchers/desktop/1.1.0/notification-policy.json',
+         'windows/patchers/desktop/0.71.2/supported.json',
          'windows/patchers/desktop/0.71.2/recipes/manifest.json', 'windows/patchers/desktop/notification-policy.json',
          'windows/patchers/desktop/0.71.2/notification-policy.json',
          'windows/dist/network/grokbot-tailcat.exe', 'windows/dist/installer/grokbot-setup-stub.exe',
@@ -43,6 +46,12 @@ TOOLS = ('docs/AI-INSTALL.md', 'docs/AI-INSTALL.en.md', 'docs/ARCHITECTURE.md', 
          'mac/patchers/desktop/x64/notification-policy.json', 'mac/dist/network/x64/grokbot-tailcat',
          'mac/patchers/desktop/download-original.mjs', 'mac/patchers/desktop/package.json',
          'mac/patchers/desktop/node_modules/@electron/asar/package.json', 'mac/patchers/desktop/node_modules/@electron/asar/lib/asar.js',
+         'linux/patchers/desktop/patch.mjs', 'linux/patchers/desktop/deb.mjs', 'linux/patchers/desktop/launcher.mjs',
+         'linux/patchers/desktop/output.mjs', 'linux/patchers/desktop/tar.mjs',
+         'linux/patchers/desktop/supported.json', 'linux/patchers/desktop/recipes/manifest.json',
+         'linux/patchers/desktop/notification-policy.json',
+         'linux/patchers/desktop/arm64/supported.json', 'linux/patchers/desktop/arm64/recipes/manifest.json',
+         'linux/patchers/desktop/arm64/notification-policy.json',
          'ios/release/patch-ios.py', 'ios/recipes/ios/manifest.json', 'android/patchers/patch.mjs',
          'android/patchers/supported.json', 'android/dist/grokbot-android-shell.apk',
          'web/patchers/patch.mjs', 'web/patchers/upload.mjs', 'web/client/native.js', 'web/client/boot-data.js')
@@ -218,6 +227,16 @@ def linked(path):
     return stat.S_ISLNK(info.st_mode) or bool(getattr(info, 'st_file_attributes', 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT)
 
 
+def selected_tree(tree, roots):
+    parents = set()
+    for root in roots:
+        parts = root.split('/')
+        for i in range(1, len(parts)):
+            parents.add('/'.join(parts[:i]) + '/')
+    return {n: m for n, m in tree.items()
+            if n in parents or any(n == root or n.startswith(root + '/') for root in roots)}
+
+
 def release(repo, commit, output, *, pushed_ref='refs/remotes/origin/main', verify_only=False, helper_sums=None):
     if any(str(p).startswith(('//', '\\\\')) for p in (repo, output, helper_sums) if p is not None):
         raise ReleaseError('use local filesystem paths')
@@ -234,7 +253,7 @@ def release(repo, commit, output, *, pushed_ref='refs/remotes/origin/main', veri
         if verify_only:
             names = {p.name for p in archives.values()} | {SUMS}
             if {p.name for p in output.iterdir()} != names:
-                raise ReleaseError('expected exactly six platform ZIPs and SHA256SUMS.txt')
+                raise ReleaseError('expected exactly seven platform ZIPs and SHA256SUMS.txt')
         else:
             output.mkdir(mode=0o700)  # Atomic reservation; even an existing empty directory is not ours.
             rollback.callback(remove_empty, output)
@@ -250,14 +269,14 @@ def release(repo, commit, output, *, pushed_ref='refs/remotes/origin/main', veri
                 sha = digest(src)
                 if verify_only and sha != archive_digest(repo, args):
                     raise ReleaseError(f'{path.name}: bytes differ from git archive of the requested commit')
-                check_layout(src, path, commit, {n: m for n, m in tree.items() if n.partition('/')[0] in roots})
+                check_layout(src, path, commit, selected_tree(tree, roots))
             rows.append((path.name, sha))
         sums = ''.join(f'{sha}  {name}\n' for name, sha in sorted(rows)).encode('ascii')
         manifest = output / SUMS
         if verify_only:
             with open_artifact(policy, manifest) as src:
                 if src.read(len(sums) + 1) != sums:
-                    raise ReleaseError('SHA256SUMS.txt does not match the six reproduced ZIPs')
+                    raise ReleaseError('SHA256SUMS.txt does not match the seven reproduced ZIPs')
         if helper_sums is not None:
             content_check(policy, repo, commit, sums, archives.values(), helper_sums)
         if not verify_only:

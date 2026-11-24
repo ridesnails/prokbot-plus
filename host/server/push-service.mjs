@@ -72,7 +72,7 @@ export class PushService {
       }
       if (input.kind !== undefined) {
         check(['iphone', 'ipad', 'mac', 'desktop'].includes(input.kind), 400, '设备类型无效');
-        next.kind = input.kind === 'desktop' && ['windows', 'android', 'web'].includes(input.clientKind) ? input.clientKind : input.kind;
+        next.kind = input.kind === 'desktop' && ['windows', 'linux', 'android', 'web'].includes(input.clientKind) ? input.clientKind : input.kind;
       }
       if (input.bundleId !== undefined) {
         check(validTopic(input.bundleId), 400, '设备 Bundle ID 无效'); next.bundleId = input.bundleId;

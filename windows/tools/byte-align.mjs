@@ -1,4 +1,4 @@
-// Byte alignment between two builds of the same bundle, used to port recipes.
+// Byte alignment between two builds of the same bundle; the 0.71.2 recipes were ported with it.
 
 /** Equal runs between two mostly identical buffers: [{ a, b, length }], monotonic in both. */
 export function align(a, b, { k = 32, window = 1 << 16 } = {}) {

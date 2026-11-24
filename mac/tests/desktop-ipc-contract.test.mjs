@@ -50,6 +50,13 @@ test('desktop IPC probes require a trusted window, a declaration and an installe
   assert.equal(invoked, 0, 'probing is side-effect free');
   assert.equal(await call('fixtureView'), 1);
   await assert.rejects(call('toString'), /does not implement/);
+  assert.deepEqual(await call('getGrokBotUserSkills'), { heldOnBox: false, skills: [] });
+  assert.deepEqual(await call('listPublicBotMarketplace'), { featuredListings: [], listings: [], hasMore: false });
+  assert.deepEqual(await call('listGrokBotTeamAgents'), []);
+  assert.deepEqual(await call('listCloudAgentPublishedApps'), { kind: 'off' });
+  assert.deepEqual(await call('getCloudAgentPublishProposals'), { kind: 'off' });
+  assert.deepEqual(await call('getLocalToolActionGrant'), { granted: false });
+  assert.deepEqual(await call('readScmConnections'), { github: false, gitlab: false, bitbucket: false, 'azure-devops': false });
 });
 
 test('desktop edges keep inline panel and Spotlight declarations out of the main edge in either minified style', () => {
@@ -104,6 +111,16 @@ test('1.1.0 global search uses the Host search methods and reports one complete 
   assert.equal(await gateway.command('noteTranscriptOpened', { agentId: 'a' }), null);
   assert.deepEqual(await gateway.command('takeTeachLearningPrompts'), []);
   assert.equal(requests.length, 2);
+});
+
+test('the default main Bot is the first visible Bot, as the client requires a non-empty ID', async t => {
+  t.mock.method(globalThis, 'fetch', async url => {
+    assert.equal(new URL(url).pathname, '/api/listAgents');
+    return Response.json([{ id: 'hidden', isHiddenFromSidebar: true }, { id: 'visible' }]);
+  });
+  const gateway = createGateway(config);
+  t.after(() => gateway.close());
+  assert.deepEqual(await gateway.command('ensureDefaultMainAgent'), { outcome: 'present', agentId: 'visible' });
 });
 
 test('port and gateway teardown abort outstanding commands without posting stale replies', async t => {

@@ -16,6 +16,7 @@ ProkBot Plus 的原理、各部分的实现、目录、测试与维护，以及�
 flowchart LR
   Win[Windows 客户端] --> Admin
   Mac[Mac 客户端] --> Admin
+  Lin[Linux 客户端] --> Admin
   iOS[iOS 客户端] --> Admin
   And[Android 客户端] --> Admin
   Web[网页版<br/>任何浏览器] --> Admin
@@ -25,7 +26,7 @@ flowchart LR
   end
   Adapter --> Model[你的模型接口<br/>Chat / Responses / Anthropic]
   Core --> Box[box 容器<br/>官方 Linux 桌面]
-  Core -.经客户端反向连接.-> PC[你的 Mac / Windows 电脑]
+  Core -.经客户端反向连接.-> PC[你的 Mac / Windows / Linux 电脑]
   Admin --> Push[APNs / Bark]
   Admin <--> Tailcat[Tailcat 内置组网]
 ```
@@ -44,10 +45,10 @@ flowchart LR
 | 🟢 电脑和浏览器操作、记忆、上下文压缩、定时任务、操作审批、人工接管 | 保留原版，改用你的模型和本地计时 | 操作电脑需要能看图的模型 |
 | 🔁 自动审查 | 用你的模型判断操作能不能执行，规则可以自己写 | — |
 | 🔁 演示任务（Teach a task） | 录制保留原版，整理成技能用你的模型 | 能看图的模型 |
-| 🔁 操作你的电脑 | 经你的 Host，电脑不需要开放端口。Mac 支持命令与图形控制；Windows 支持本机命令 | Mac 或 Windows 客户端 |
+| 🔁 操作你的电脑 | 经你的 Host，电脑不需要开放端口。Mac 支持命令与图形控制；Windows 和 Linux 支持本机命令 | Mac、Windows 或 Linux 客户端 |
 | 🔁 Bot 资料库、用户资料、技能 | 保存在 Host 上；技能可以查看版本、对比和恢复 | — |
 | 🔁 连接应用 | Host 自己的应用目录：代码应用、远程 MCP 或纯技能，支持 OAuth、API Key；Bot 也能自己写应用 | 应用自己的凭据 |
-| 🔁 复杂编程 | 交给已连接的 Mac 或 Windows 上的 Codex，用这台电脑的 Codex 登录和模型 | 装好并登录 Codex CLI |
+| 🔁 复杂编程 | 交给已连接的 Mac、Windows 或 Linux 上的 Codex，用这台电脑的 Codex 登录和模型 | 装好并登录 Codex CLI |
 | 🔁 Bot 和技能分享、多 Bot 协作 | 发布到自己的 Host、导出 ZIP；把任务交给其他 Host 上的 Bot | 另一个 Host |
 | 🔁 语音输入、实时通话 | Fish Audio、OpenAI 兼容的转写，或 Mac 本地模型；通话的识别和合成分别接你的服务（实验） | 语音服务 |
 | 🔁 图片和视频生成 | OpenAI 兼容图片接口（按比例出图、参考图修图）、WaveSpeed 等 | 供应商的 Key |
@@ -145,16 +146,18 @@ Bot 做有风险的操作前，原版会问官方分类服务。这里改用你�
 
 直接使用官方 Linux 桌面镜像，Host 通过带认证的连接操作它，可以和 Host 同机，也可以放到另一台。让 Agent 操作你的电脑时，客户端主动连到 Host，你的电脑不需要开放端口。
 
-<a id="mac-client"></a><a id="windows-client"></a><a id="mac-客户端"></a><a id="windows-客户端本版本新增"></a>
-### 桌面客户端（Mac 与 Windows）
+<a id="mac-client"></a><a id="windows-client"></a><a id="linux-client"></a><a id="mac-客户端"></a><a id="windows-客户端本版本新增"></a>
+### 桌面客户端（Mac、Windows 与 Linux）
 
-原版桌面客户端是 Electron 应用。这里保留原版界面，重写负责连接和系统功能的主进程（`mac/clients/desktop/`，Mac 和 Windows 共用），让它只连接你的 Host。平台差异集中在 `platform.mjs`。复杂编程交给本机的 Codex。
+原版桌面客户端是 Electron 应用。这里保留原版界面，重写负责连接和系统功能的主进程（`mac/clients/desktop/`，Mac、Windows 与 Linux 共用），让它只连接你的 Host。平台差异集中在 `platform.mjs`。复杂编程交给本机的 Codex。
 
-- **Mac**：默认 ad-hoc 签名；要让 Agent 控制图形界面，需要用自己的证书签名（`--identity auto`），并授予辅助功能和屏幕录制权限。输出放在 `.noindex` 目录，避免 Spotlight 收录重复的 App。补丁按本机芯片选原版：Apple 芯片的固定输入在 `mac/patchers/desktop/`，Intel 的在 `mac/patchers/desktop/x64/`（实验），`--arch` 可以指定。
-- **Windows**：`windows/patchers/desktop/patch.mjs` 默认用 1.1.0 安装包，`--version 0.71.2` 改用回退版本，`--source` 可指定安装包、`app-64.7z` 或已安装目录（按大小和 SHA-256 识别版本）。从 NSIS 安装包取出 `app-64.7z`，用 Windows 自带的 `tar.exe`（Windows 10 用 7-Zip）解包，核对 `app.asar` 并回放 recipe；`--verify-only` 到此为止。生成时换入共用主进程，重打 ASAR，输出便携目录、便携 ZIP、安装包和 `*.patch.json`。改过的 `Grok Bot.exe` 不再带官方签名。
+- **Mac**：默认 ad-hoc 签名；要让 Agent 控制图形界面，需要用自己的证书签名（`--identity auto`），并授予辅助功能和屏幕录制权限。输出放在 `.noindex` 目录，避免 Spotlight 收录重复的 App。补丁按本机芯片选原版：Apple 芯片的固定输入在 `mac/patchers/desktop/`，Intel 的在 `mac/patchers/desktop/x64/`，`--arch` 可以指定。如需回退 `0.71.2`，请使用 v1.7.0 的 Mac 发布包。重建 Mac Tailcat：`python host/network/build-tailcat.py --target darwin-arm64 --output mac/dist/network`（Apple 芯片）和 `python host/network/build-tailcat.py --target darwin-amd64 --output mac/dist/network/x64`（Intel）。
+- **Windows**：`windows/patchers/desktop/patch.mjs` 默认用 1.2.3 安装包，`--version 1.1.0` 或 `--version 0.71.2` 改用回退版本，`--source` 可指定安装包、`app-64.7z` 或已安装目录（按大小和 SHA-256 识别版本）。从 NSIS 安装包取出 `app-64.7z`，用 Windows 自带的 `tar.exe`（Windows 10 用 7-Zip）解包，核对 `app.asar` 并回放 recipe；`--verify-only` 到此为止。生成时换入共用主进程，重打 ASAR，输出便携目录、便携 ZIP、安装包和 `*.patch.json`。改过的 `Grok Bot.exe` 不再带官方签名。
 - **Windows 运行时**：关窗后留在托盘；通知用带 AppUserModelID 的开始菜单快捷方式；本机命令用 PowerShell 并打开 UTF-8 输出（从 Git Bash 启动会改变 `cmd /c` 参数，请从开始菜单启动）；委派用本机 `codex.exe`，结束时 `taskkill /T`。Windows 没有 Mac 的鼠标键盘组件。
-- **1.1.0 接口**：preload 按 `desktop-mount`、`main`、`spotlight` 三条边声明方法，`local-services.mjs` 按边注册处理器；全局搜索由 `gateway.mjs` 转为 Host 的 `searchAgents` / `searchMedia`；听写把 16 kHz PCM 攒成 WAV 交给 Host 的 `/local/audio/transcriptions`。
-- **recipe**：1.1.0 的 recipe 由 `windows/tools/desktop-recipes/build.mjs` 生成。`spec.mjs` 的每处修改以原文件里只出现一次的文本为锚点，追加的本项目代码在 `extensions/`；`--check` 从官方安装包重新生成并逐字节比较。0.71.2 的 recipe 由 `windows/tools/port-desktop-recipes.mjs` 从同版本的 Mac recipe 对齐生成，Windows 回退和 Android 的 0.71.2 界面共用；同一工具加 `--platform mac` 生成 Intel Mac 的 recipe，Tailcat 用 `python host/network/build-tailcat.py --target darwin-amd64 --output mac/dist/network/x64` 重建。`mac/clients/desktop/*-settings-extension.js` 是 0.71.2 recipe 加进设置页的代码的源码。
+- **Linux**：`linux/patchers/desktop/patch.mjs` 支持官方 1.2.3 `x64`（`linux/patchers/desktop/`）和 `arm64`（`linux/patchers/desktop/arm64/`）的 `.deb` 原包（`deb.mjs` 用纯 Node 解析 `ar` 归档并校验整包及 `data.tar.xz` 摘要，再调用 `tar` 解包），核对 `grok-bot` 与 `app.asar` 并回放 recipe；Linux Electron 不校验 ELF 内嵌 ASAR 摘要，保持原版 `grok-bot` 二进制不变。复用 `host/bin/` 下对应架构的 Linux Tailcat，输出便携目录（`grokbot-local/`）、`.tar.gz`（`--no-archive` 可跳过）、`*.patch.json` 及免 root 的 `install.sh` / `uninstall.sh` / `setup-apparmor.sh`。
+- **Linux 运行时**：主窗口沿用官方无边框样式（`frame: false, titleBarStyle: 'default'`），由原版界面渲染最小化/最大化/关闭按钮并在 Wayland 下传递 `--sand-wayland-client`；配对窗口使用原生边框；托盘使用 `icon.png`（不可用时关窗直接退出，菜单保留 `Ctrl+Q`）；提示音依次回退 `pw-play` / `paplay` / `aplay`；凭据优先用系统密钥环，无守护进程时沿用官方行为启用 `basic_text`；本机机器 ID 使用 `linux-` 前缀，支持本机命令行与 Codex，不支持鼠标键盘图形控制。
+- **桌面 1.1.0 / 1.2.3 接口**：preload 按 `desktop-mount`、`main`、`spotlight` 三条边声明方法，`local-services.mjs` 按边注册处理器；全局搜索由 `gateway.mjs` 转为 Host 的 `searchAgents` / `searchMedia`；听写把 16 kHz PCM 攒成 WAV 交给 Host 的 `/local/audio/transcriptions`。
+- **recipe**：1.2.3 的五平台 recipe（Windows x64、macOS ARM64、macOS Intel x64、Linux x64、Linux ARM64）由 `windows/tools/desktop-recipes/build.mjs`（`--target windows|mac-arm64|mac-x64|linux-x64|linux-arm64`）统一生成。`spec.mjs` 的每处修改以原文件里只出现一次的文本为锚点，追加的本项目代码在 `extensions/`；`--check` 从官方安装包重新生成，比较解压后的内容（不同 zlib 压缩出的 gzip 字节不同），并核对每个 recipe 文件与清单里的 SHA-256 一致。`1.1.0/`（由提交 `8c1fcd1` 的 `spec.mjs` 生成）和 `0.71.2/` 的 recipe 保留为 Windows 回退版本，并与 Android / 网页版共用；`mac/patchers/desktop/native-helper.mjs` 针对 1.2.3 的 `CUGrokBotService` 通用二进制更新 Team ID。`mac/clients/desktop/*-settings-extension.js` 是 0.71.2 recipe 加进设置页的代码的源码。
 - **安装器**：`windows/installer/` 用 Go 标准库把 `stub.exe`、便携 ZIP 和 32 字节尾部拼成按用户安装包，默认装到 `%LOCALAPPDATA%\Programs\Grok Bot Local`，支持 `/S`、`/D=目录`。重建 stub：在 `windows/installer/` 运行 `go build -trimpath -ldflags="-H=windowsgui -s -w" -o ../dist/installer/grokbot-setup-stub.exe .`；重建 Tailcat：`python host/network/build-tailcat.py --target windows-amd64 --output windows/dist/network`。
 
 <a id="desktop-protocol"></a>
@@ -214,7 +217,10 @@ Bot 做有风险的操作前，原版会问官方分类服务。这里改用你�
 
 ### iOS 客户端
 
-原版 iOS 客户端用 React Native 开发。这里写了一个注入的动态库（Objective-C，源码在 `ios/clients/ios/`，`build.py` 编译），把发往官方的请求转到你的 Host，再对 Hermes 字节码做少量固定修改。小组件、分享和通知三个扩展保留，使用独立的 Bundle ID。补丁输出未签名的 IPA，主应用和三个扩展都要自己签名（见 [`ios/README.md`](../ios/README.md)）。字节码补丁（`ios/recipes/ios/*.hbc.gbp.gz`）是上游作者生成的数据，修改字节码的过程没有附在上游仓库里。
+原版 iOS 客户端用 React Native 开发。这里写了一个注入的动态库（Objective-C，源码在 `ios/clients/ios/`，`build.py` 编译），把发往官方的请求转到你的 Host，再对 Hermes 字节码做少量固定修改。小组件、分享和通知三个扩展保留，使用独立的 Bundle ID；`extensions.py` 与 `patch-app.py` 同时隔离主应用与扩展 `Info.plist` 中的 `GrokAppProtection` 组配置。补丁输出未签名的 IPA，主应用和三个扩展都要自己签名（见 [`ios/README.md`](../ios/README.md)）。
+
+- **字节码补丁工具（HBC 98）**：1.27.0（29519）的三份补丁由 `ios/tools/build_ios_127_recipe.py` 与 `ios/tools/hbc98/` 仅凭用户原版 1.27.0 HBC 与仓库内归档 1.26.0 补丁即可确定性重建（按 1.27.0 字符串表语义移植全部 59 处编辑与 6 个新增函数，包含 `stampSender` 父环境槽位 `60`、`gatewayPorts` `CreateClosureLongIndex`、动态 `Promise.resolve(true)` 遥测桩、SkillDetail 环境槽位 `12`/`18` 与 React 模块 `__r(50)`、保持 `ChatAvatar` 默认 `live`、隐藏 `useNativePluginEntries`、扩展 `BackendClient.call`/`callPublic` 至 24 项本地旁路、以及在 `buildPinnedGate` (`fn#19464`) 固定 `cloud_canvas_skill` 与 `grok_bot_canvas_skill` 为 `true`），回放三份 recipe 并模拟 URL/token 注入后重新审计。`ios/tools/build_ios_126_recipe.py` 需要未提交的本地中间分析文件（`bodies_full.json`、`bodies_plan.json` 等，因含原版字节码片段不进仓库）才能重跑，仅供留档参考。`ios/recipes/ios/1.26.0/` 与 `ios/recipes/ios/1.16.0/` 保留 1.26.0（29388）和 1.16.0（23152）的固定回退补丁；仓库只保存确定性补丁，不保存原版或修改后的 HBC。
+- **Host 兼容与注入库**：`ios/clients/ios/GBConnectors.m` 通过 swizzle `NSURLSession` 工厂方法在保留应用自定义 `NSURLSessionConfiguration` 的同时前置本地 `NSURLProtocol`（后台会话配置原样放行），拦截自动审查团队偏好 RPC 返回 `{}`，并将连接应用、8 个 Canvas/Pages RPC 与 2 个 MCP 工具权限 RPC 转发至 Host `/local/mobile-rpc/`；Host 端由独立模块 `host/server/mobile-rpc-compat.mjs` 对未启用自建 Pages 的实例返回 `ListUserCanvases` 空列表、Connect 格式 `not_found`/`unimplemented` 错误，并对 `GetGrokBotMcpToolPermissions` 返回 `{ servers: [] }`、`SetGrokBotMcpToolPermissions` 返回 501 `unimplemented`。`GBBootstrap.m` 依据设置页特有标记（`dev-gateway@localhost`、本地配置覆盖 tag 等）在设置页接管「退出登录 / Sign out」清理全部钥匙串访问组、`NSUserDefaults` 与 `Caches/GrokBotPaired`，并在未配对登录页提供原生「连接 Host」入口。
 
 <a id="voice"></a>
 ### 语音、推送和外网访问
@@ -245,10 +251,11 @@ Bot 和技能发布到自己的 Host，或在管理页「分享」导出、导�
 | `host/tools/host-admin.mjs` | 命令行管理 |
 | `host/network/`、`host/bin/` | Tailcat 源码与构建脚本、预编译的 Linux 版 |
 | `host/bench/` | 整机容量测量工具（见 `host/README.md`） |
-| `mac/clients/desktop/` | 桌面主进程，Mac 与 Windows 共用；Android 也复制其中的 `i18n.mjs`、`external-url.mjs`、`connectors.mjs` |
-| `mac/patchers/desktop/` | Mac 补丁、recipe 应用器、原版下载器（Windows 也用）；`x64/` 是 Intel 版的固定输入和 recipe |
-| `windows/patchers/desktop/` | Windows 补丁：`patch.mjs`、`original.mjs`（解压官方安装包，Android 和网页版也用）、`inputs.mjs`（各版本输入）、`pe.mjs`、`recipes/`；`0.71.2/` 是回退版本 |
-| `windows/tools/` | 1.1.0 recipe 生成工具 `desktop-recipes/`、同版本 recipe 移植、preload 检查 |
+| `mac/clients/desktop/` | 桌面主进程，Mac、Windows 与 Linux 共用；Android 也复制其中的 `i18n.mjs`、`external-url.mjs`、`connectors.mjs` |
+| `mac/patchers/desktop/` | Mac 补丁、recipe 应用器、原版下载器（Windows、Linux 也用）；`x64/` 是 Intel 版的固定输入和 recipe |
+| `linux/patchers/desktop/` | Linux 补丁：`patch.mjs`、`deb.mjs`（纯 Node 解析与校验 `.deb`）、`launcher.mjs`（便携启动器与用户级安装脚本）、`tar.mjs`、`recipes/`；`arm64/` 是 ARM64 版的固定输入和 recipe |
+| `windows/patchers/desktop/` | Windows 补丁：`patch.mjs`、`original.mjs`（解压官方安装包，Android 和网页版也用）、`inputs.mjs`（各版本输入）、`pe.mjs`、`recipes/`；`1.1.0/` 与 `0.71.2/` 是回退版本 |
+| `windows/tools/` | 1.2.3 桌面 recipe 生成工具 `desktop-recipes/`（支持 Windows / macOS ARM64 / macOS Intel / Linux x64 / Linux ARM64）、preload 检查 |
 | `windows/installer/`、`windows/dist/` | 安装器源码，预编译的 Tailcat 和安装器 stub |
 | `android/shell/`、`android/dist/` | Android 外壳源码（`release-shell.mjs` 重建）和预编译外壳 |
 | `android/client/` | WebView 里的桥接、排版和兼容代码，网页版共用 |
@@ -272,7 +279,7 @@ Bot 和技能发布到自己的 Host，或在管理页「分享」导出、导�
 <a id="testing"></a>
 ## 测试与维护
 
-需要 Node.js 22.12+、Python 3.10+。提交前五套测试必须全部通过，每条单独运行：
+需要 Node.js 22.12+、Python 3.10+。提交前六套测试必须全部通过，每条单独运行：
 
 ```sh
 node ci/check-inputs.mjs                 # 固定版本、补丁清单和预编译外壳摘要
@@ -280,6 +287,7 @@ node ci/homepage-versions.mjs            # 首页版本表是否与清单一致
 node --test "host/tests/*.test.mjs"      # 服务端
 node --test "windows/tests/*.test.mjs"   # Windows 客户端
 node --test "mac/tests/*.test.mjs"       # Mac / 共用客户端
+node --test "linux/tests/*.test.mjs"     # Linux 客户端
 node --test "android/tests/*.test.mjs"   # Android 客户端
 node --test "web/tests/*.test.mjs"       # 网页版
 ```
@@ -288,7 +296,10 @@ node --test "web/tests/*.test.mjs"       # 网页版
 - 在 Git Bash 里运行 Host 测试时，PATH 里的 `/usr/bin/tar` 会让两项部署用例失败，要把 `C:\Windows\System32` 放在前面，使用 Windows 自带的 `tar.exe`。
 - 依赖官方原包的用例默认跳过。把原包放在 Git 忽略的 `inputs/` 并设置环境变量后才会运行：`PROKBOT_ANDROID_TEST_SOURCE`、`PROKBOT_WEB_TEST_SOURCE`（1.1.0 安装包）、`PROKBOT_WEB_TEST_FALLBACK_SOURCE`（0.71.2 安装包）、`PROKBOT_TEST_HOST_ARCHIVE`（Host 原包，未设置时找 `inputs/host/sand-host-bundle-d0a4baa.tgz`）。
 - 网页版浏览器测试：`python web/tests/browser-flows.py <界面包>`，需要 Playwright（`pip install playwright`、`playwright install chromium firefox webkit`），在 8 种设备尺寸上跑登录、对话、看图、通知、返回和退出。改了 `android/client/` 或 `web/` 要用 1.1.0 和 0.71.2 两种界面包各跑一次。
-- iOS 网络层：`python3 ios/tests/ios-network.test.py`，只能在装了 Xcode 命令行工具的 Mac 上运行。
+- iOS 测试：
+  - `python3 -B -m unittest discover -s ios/tools/hbc98/tests`（在仓库根目录运行，HBC 98 解析与补丁生成单测）；
+  - `python3 ios/tests/ios-release.test.py`、`ios-signing.test.py`、`ios-pairing-credentials.test.py`、`ios-app-intents-source.test.py`、`ios-pages-rpc.test.py`（跨平台离线运行）；
+  - `python3 ios/tests/ios-network.test.py` 与 `python3 ios/tests/ios-auto-review-preferences.test.py`（需要装了 Xcode 命令行工具的 Mac）。
 - Android 外壳配对来源检查：`python android/tests/native_pairing_origin.py`，需要先构建外壳。
 
 自动测试之外，改动后建议用 `host-admin.mjs model-set --test-only` 对各格式发真实请求，在客户端完成一次带工具调用的多轮对话，并让 Bot 搜一条新闻、画一张 16:9 的图再改一处。改了 Host 运行时代码要重建镜像才生效，只在隔离的非生产实例上验证。
@@ -296,16 +307,16 @@ node --test "web/tests/*.test.mjs"       # 网页版
 <a id="desktop-compatibility"></a><a id="desktop-validation"></a>
 ### 支持新的官方版本
 
-版本由构建工具读取的清单决定：桌面 `*/patchers/desktop/supported.json` 和 `recipes/manifest.json`，Android 和网页版 `android/patchers/supported.json`，iOS `ios/recipes/ios/manifest.json`，Host `host/recipes/host/manifest.json`。不要放宽哈希校验。
+版本由构建工具读取的清单决定：桌面 `*/patchers/desktop/supported.json` 和 `recipes/manifest.json`，Android 和网页版 `android/patchers/supported.json`，iOS `ios/recipes/ios/manifest.json`（及回退目录 `ios/recipes/ios/<版本>/manifest.json`、`ios/patchers/ios/extensions.py` 中的 `EXTENSIONS_BY_RELEASE` 与 `WIDGETS_SCHEME_COUNTS_BY_RELEASE`），Host `host/recipes/host/manifest.json`。不要放宽哈希校验。
 
 ```sh
 node ci/official-channels.mjs --online --phase planning     # 查询官方通道的当前版本
-node ci/desktop-source-audit.mjs <windows|mac> <app.asar> <版本> <asar-sha256>
-node windows/tools/desktop-recipes/build.mjs --source <安装包> --check
+node ci/desktop-source-audit.mjs <windows|mac|linux> <app.asar> <版本> <asar-sha256>
+node windows/tools/desktop-recipes/build.mjs --target <windows|mac-arm64|mac-x64|linux-x64|linux-arm64> --source <安装包、.app 或 .deb> --check
 node --expose-internals windows/tools/inspect-desktop-preload.mjs <preload.cjs> <preload-sha256>
 ```
 
-1. Windows：把当前版本的输入和 recipe 移到 `windows/patchers/desktop/<版本>/` 作为回退，更新 `supported.json`，按新原文件调整 `spec.mjs` 的锚点后运行 `build.mjs`。Android 和网页版另外验证 WebView 桥接和 `renderer-patches.mjs`，再更新 `android/patchers/supported.json`（旧版本移进 `fallback`）。
+1. 桌面（Windows、Mac 与 Linux）：Windows 先把当前版本的输入和 recipe 移到 `windows/patchers/desktop/<版本>/` 作为回退；更新各平台 `supported.json`，按新原文件调整 `spec.mjs` 的锚点后分别运行 `build.mjs --target windows`、`--target mac-arm64`、`--target mac-x64`、`--target linux-x64`、`--target linux-arm64`（并在 Mac 上核对 `native-helper.mjs` 偏移）。Android 和网页版另外验证 WebView 桥接和 `renderer-patches.mjs`，再更新 `android/patchers/supported.json`（旧版本移进 `fallback`）。
 2. 检查 preload 的接口变化、Bot 目录和资料库、表格、弹窗与输入法，并确认错版输入会被拒绝。
 3. 在真实客户端上验证配对、吊销、Bot 列表与历史、两轮对话、取消、附件上传并读回、重连不重复、重启后历史仍在。
 4. 官方通道的观测记录在 `ci/official-snapshot.json`。更新它之后运行 `node ci/homepage-versions.mjs --write` 刷新双语首页的版本表；这不改变补丁接受的版本。
@@ -320,7 +331,7 @@ node --expose-internals windows/tools/inspect-desktop-preload.mjs <preload.cjs> 
 | 新增模型接口格式 | 在 `host/runtime/` 新建适配文件，照 `openai-chat.mjs` 的形态实现，再在 `model-session.mjs`、`host-auto-review.mjs` 的 `CLASSIFIERS`、`host/server/models.mjs`、管理页 `public/model.js` 注册 |
 | 调整思考档位 | `host/runtime/model-policy.mjs`；Claude 型号特性在 `anthropic-messages.mjs` |
 | 修改管理页 | `host/server/public/`，英文文案在 `locales-en.js` |
-| 修改桌面客户端 | `mac/clients/desktop/`，Mac 与 Windows 共用；Android 也复制其中几个模块 |
+| 修改桌面客户端 | `mac/clients/desktop/`，Mac、Windows 与 Linux 共用；Android 也复制其中几个模块 |
 | 修改 Android 客户端 | 桥接在 `android/client/`；外壳在 `android/shell/`，改完运行 `node android/shell/release-shell.mjs` 更新预编译外壳和摘要（需要 JDK 17+ 和 Android SDK） |
 | 修改网页版 | 浏览器层在 `web/client/`，Host 端在 `host/server/web-client.mjs`；桥接与 Android 共用 |
 | 应用（插件） | 先看能否做成应用或技能：[应用开发](#app-development) |
@@ -329,7 +340,9 @@ node --expose-internals windows/tools/inspect-desktop-preload.mjs <preload.cjs> 
 
 - 只支持清单里的固定版本，官方更新后要重新制作补丁；没有自动更新。
 - Windows：Bot 还不能控制鼠标键盘；没有代码签名；只支持 x64；Tailcat 和实时语音没有和真实 Host 联调过。
+- Linux：不支持本机鼠标键盘图形控制；Ubuntu 24.04+ 启用 AppArmor userns 限制时需运行一次 `sudo …/setup-apparmor.sh` 以保留沙箱；在 WSL2 的 Ubuntu 22.04 x64（WSLg）上实测了生成、配对、对话、需审批的本机命令、重启恢复和安装卸载脚本；原生 GNOME / KDE、Wayland、Tailcat、托盘、ARM64 和 Ubuntu 24.04 的 AppArmor 脚本还没实测。本机命令和 Codex 需要 1.10.0 及以后的 Host，旧 Host 不接受 `linux` 平台。
 - Android：不支持 Tailcat；排版照官方手机版，但页面内容是桌面版的（设置是「通用 / 电脑 / 更新」等标签页，Bot 的电脑从对话详情打开）；后台通知靠前台服务，部分厂商系统需要允许后台运行；语音只验证到请求送达 Host；只在模拟器上测过。
 - 网页版：只能使用 Host 上的 Bot 电脑；不支持 Tailcat；http 地址下麦克风、语音输入和通知不可用，页面关闭后没有通知；没有在真机浏览器上测试。
 - 原版桌面只有 amd64。单台 ARM 机器同时运行 Host 和模拟桌面的完整部署和性能没有验证。
-- Mac 和 iOS 是上游已有的补丁，本项目没有真机测试；Intel Mac 是本项目移植的实验支持，已有用户在 Intel Mac 上实测生成、配对和对话可用，本机图形控制和 Tailcat 还没人测过。iOS 需要自备已解密的 IPA 和签名证书。
+- Mac：Intel 1.2.3 已在 Intel Mac 上实测生成、配对和对话可用（本机图形控制和 Tailcat 尚未在 Intel Mac 上实测）；Apple 芯片 1.2.3 已通过证书签名构建校验，但尚未在 Apple 芯片真机上实测运行。
+- iOS 需要自备已解密的 IPA 和签名证书。1.27.0（29519）由贡献者在 iPad Pro 上实测了升级、配对、消息与图片附件、自动审查设置和通知流；之后重编的注入库（`78d334e4…`）只在 Mac 上跑过原生测试，没有重新上真机。iPhone 还没有完整测试；1.26.0 和 1.16.0 回退版本搭配新注入库没有真机测试。
