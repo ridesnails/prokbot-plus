@@ -70,17 +70,17 @@ flowchart LR
 - **`host` 容器**：管理服务监听 8000，映射到宿主机 `${GROKBOT_LISTEN_ADDRESS:-127.0.0.1}:${GROKBOT_PUBLIC_PORT:-18080}`；原版 Host 只监听容器内的 `127.0.0.1:1340`。
 - **`box` 容器**：官方 Linux 桌面，VNC 端口只在容器网络内可见。
 
-同机 Box 只共享五棵受保护数据目录：`agents`、`user-memory`、`workflows`、`plugins`、`managed-skills`，并且只挂到 `/data/runtime/host-data/<目录>`，仍在原版 `RemoteBox` 的受保护根内；`agent-transcripts`、`connector-secrets`、`model.env`、`auth.json`、`projects` 和其他内部数据不会挂入 Box。`agents/<id>/` 里的 `store.db` 等数据库随 `agents` 一起挂入：和官方同机运行时一样，Bot 的 Shell 看得到它们，Read 工具会被原版的受保护路径检查拒绝。每个目录使用独立的 `volume subpath`，所以同机部署要求 Docker Engine 26.0+、API 1.45+ 和 Compose 2.26.0+，部署工具在写入或启动前检查；`--host-only` 不挂子路径，不检查。部署工具启动服务前用 Host 镜像运行一次 `data_init.py`，只创建缺失目录，并且只设置这些新建目录的属主和权限，不改已有顶层目录；部署、备份和恢复都会核对完整的挂载集合。`compose.yaml` 还会设置 `GROKBOT_HOST_MEMORY_MOUNTS=1`，提示运行时只在同机 Box 拓扑追加现场检查提示，让 Bot 在自己的电脑上读记忆；`--host-only` 和远程执行端不会收到该提示。
+同机 Box 只共享五棵受保护数据目录：`agents`、`user-memory`、`workflows`、`plugins`、`managed-skills`，并且只挂到 `/data/runtime/host-data/<目录>`，仍在原版 `RemoteBox` 的受保护根内；`agent-transcripts`、`connector-secrets`、`model.env`、`auth.json`、`projects` 和其他内部数据不会挂入 Box。`agents/<id>/` 里的 `store.db` 等数据库随 `agents` 一起挂入：和官方同机运行时一样，Bot 的 Shell 看得到它们，Read 工具会被原版的受保护路径检查拒绝。这些挂载**全部只读**，并且不在默认的 `compose.yaml` 里，而是放在单独的 `host/release/compose.memory.yaml`：Bot 只查阅记忆，记忆由 Host 自己的记忆扩展写入；可写挂载会让 Bot 改写任何 Bot 的记忆、自动任务（包括原版信任的 `"provenance": "user"`）和技能。每个目录使用独立的 `volume subpath`，而 Docker Engine 26 以下会忽略子路径、把整个 `host-data`（含 `model.env`、`auth.json`）挂进去，Compose 2.26 以下则无法启动，所以部署工具在 `up`、`update`、`recover` 时检查 Docker Engine 26.0+、API 1.45+ 和 Compose 2.26.0+：满足时先用 Host 镜像运行一次 `data_init.py`（只创建缺失目录，只设置这些新建目录的属主和权限，不改已有顶层目录），再加上这个文件启动；不满足时提示并跳过，部署照常进行。`doctor` 的 `memoryMounts` 表示能否开启；`--host-only` 不挂这些目录。部署、备份和恢复都会核对挂载集合：选了这个文件时五个挂载必须齐全且只读，没选时一个都不能有。1.7.0–1.14.0 建的 Box 以可写方式挂载，更新前的检查和备份接受这种旧挂载，`update` 重建 Box 后改为只读；启动后和恢复后的检查只接受只读。`compose.memory.yaml` 还设置 `GROKBOT_HOST_MEMORY_MOUNTS=1`，提示运行时只在这时追加现场检查提示，告诉 Bot 记忆在哪、挂载是只读的；`--host-only`、远程执行端和没有开启的同机部署不会收到该提示。
 
 | 数据 | 内容 |
 | --- | --- |
-| 卷 `host-data`（`/data`） | 管理员（`auth.json`）、设备、Bot、对话、用量和配置。模型 Key 在 `model.env`，联网在 `web-services.json`，图片在 `media.json` |
+| 卷 `host-data`（`/data`） | 管理员（`auth.json`）、设备、Bot、对话、用量和配置。模型 Key 在 `model.env`，联网在 `web-services.json`，图片在 `media.json`，上游 `/models` 能力缓存与同步开关在 `model-context-cache.json`（由管理服务写入），运行时溢出观测上限在 `model-context-observed.json`（由 Host 运行时写入） |
 | `/data/setup-key` | 初始化码，初始化完成后自动删除 |
 | 卷 `box-home`、`box-workspace` | 执行电脑的家目录和工作区 |
 
 `.env` 里的 `GROKBOT_PUBLIC_URL` 是对外地址：客户端配对时校验地址是否一致，管理接口的 Origin 也以它为准，只能是整个域名或 IP，不能带路径。`TZ` 影响定时任务和用量统计。
 
-管理接口：管理员密码用 scrypt 保存（12–128 位），登录后用 Cookie 会话；非 GET 请求必须带 `x-grokbot-csrf: 1`，带 `Origin` 时必须和对外地址一致；登录、初始化、模型测试按 IP 每分钟限 5 次；配对码 6 位、5 分钟有效、只能用一次，配对后设备拿到独立令牌，可在管理页吊销。`host/tools/host-admin.mjs` 在命令行完成初始化、配置并测试模型、生成配对码和查看状态。
+管理接口：管理员密码用 scrypt 保存（12–128 位），登录后用 Cookie 会话；非 GET 请求必须带 `x-grokbot-csrf: 1`，带 `Origin` 时必须和对外地址一致；登录、初始化、模型测试按 IP 每分钟限 5 次，`/admin/api/model/catalog` 与 `/admin/api/model/resolve` 每分钟限 30 次，`/admin/api/model/sync-contexts` 每分钟限 12 次（另设 `PUT /admin/api/model/sync-settings` 保存同步开关、`POST /admin/api/model/observed/clear` 清除观测上限）；配对码 6 位、5 分钟有效、只能用一次，配对后设备拿到独立令牌，可在管理页吊销。`host/tools/host-admin.mjs` 在命令行完成初始化、配置并测试模型、生成配对码和查看状态。
 
 ### 模型适配层
 
@@ -94,8 +94,10 @@ flowchart LR
 | `host/runtime/openai-responses.mjs` | Responses（`/responses`），无状态调用 |
 | `host/runtime/anthropic-messages.mjs` | Messages，地址写根地址或 `/v1` 都可以 |
 | `host/runtime/model-common.mjs` | SSE 解析、错误归一、图片和文件转换、推理来源标记、可选参数回退 |
-| `host/runtime/model-policy.mjs` | 思考强度档位和各模型的参考档位表 |
-| `host/server/models.mjs` | 保存配置、读取模型列表、连接测试（和正式对话走同一条代码路径） |
+| `host/runtime/model-policy.mjs` | 思考强度档位、参考档位表、含输出预留的 75% 摘要阈值计算及运行时档位降级 |
+| `host/runtime/model-specs.mjs` | 模型 ID 规范化、内置参考上下文规格及多格式 `/models` 字段解析（最低 1024） |
+| `host/runtime/model-context-cache.mjs` | `model-context-cache.json` 与 `model-context-observed.json` 分进程缓存读写，解析 `auto` / `manual` 上下文与档位 |
+| `host/server/models.mjs` | 保存配置、读取与同步上游模型列表、能力解析、连接测试（和正式对话走同一条代码路径） |
 
 | 能力 | OpenAI Chat | OpenAI Responses | Anthropic Messages |
 | --- | --- | --- | --- |
@@ -103,11 +105,12 @@ flowchart LR
 | 多轮推理接续 | 回传同一模型的 `reasoning_content` | `store: false`，回传加密推理 | 回传带签名的思考块 |
 | 图片和文件 | 图片、PDF、文本文件 | 工具结果中带图，PDF | 工具结果中带图，PDF 和文本文档 |
 
-- **思考强度**：`none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`，以及 `default`（不发送）。优先用接口 `/models` 返回的档位，没有时用内置参考表。
+- **思考强度**：`none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`，以及 `default`（不发送）。档案支持 `effortsMode`（`auto` / `manual`）；旧档案（含未迁移的单服务配置）默认保留 `manual`，命令行 `host-admin model-set` 仅在指定 `--efforts` 时设为 `manual`（否则沿用原模式）。`auto` 模式下优先跟随上游 `/models` 返回的档位，其次匹配内置参考表（`effortLevels` 已通过 `normalizeModelId` 支持带服务商或区域前缀的模型 ID）；若上游列表变化导致已选档位不再受支持，运行时自动降级到最接近的支持档位，非 `none` 档位绝不会降到 `none`（无可用档位时退回 `default` 不发送推理参数）。
 - **Bot 路由**：服务保存格式、地址和 Key；档案绑定服务、模型 ID、思考强度和上下文策略。单个 Bot 可定义主档案和最多 8 个备用档案，不调用 Jev；子代理继承父 Bot 的路由。Key 只写入私有 `model.env`。
 - **主/备切换**：主模型尚未发出文字或工具调用时，402、408、429、5xx、网络错误或上游 I/O 空闲超时（默认 300 秒）转到下一个备用；Harness 自己还有 150 秒首字停滞超时，多数首字停滞会先由它结束本轮。400、认证错误和调用方取消不触发备用。只有明确的额度耗尽才跳过共用同一 Key 的备用。已经发出文字或工具调用后绝不切换，避免重复输出和工具副作用。
 - **推理来源标记**：不同格式、不同服务商的推理互相读不了。每段推理在 `providerOptions.grokbot` 记下格式和服务 ID，回放时只交给同源的模型。
-- **上下文容量**：只有服务商目录提供容量时才自动带入；未知模型为 `0`，不猜测。手动设置非零容量和摘要阈值会启用自动摘要。
+- **上下文容量与自愈**：档案支持 `contextMode`（`auto` / `manual`）。旧档案（含未迁移的旧版单服务 `model.env`，即使上下文填 `0`）以及未提供 `contextMode` 的配置在管理页与运行时均保留 `manual`；命令行 `host-admin model-set` 仅在指定 `--context` 时切换为 `manual`，未指定时沿用原档案模式并只采纳上游返回的容量。`auto` 只跟随上游 `/models` 返回的容量（≥ 1024）和运行时溢出观测上限，**不套用内置表猜测**（内置规格表仅在管理页显示为建议值，用户确认采用后按 `manual` 保存）。`auto` 模式下摘要阈值按扣除输出预留后的 75% 计算（Anthropic 自动扣除默认 `max_tokens` 64000，例如 200K 模型为 102K，回落配置快照时同样适用）；`manual` 档案以及管理页按总上下文计算的推荐阈值仍按 75%。`auto` 模式下遇到输入超限溢出报错时，会在内存立即下调并仅在出现比较式报错（如 `a + b > c`）或连续两次一致观测后写入 `model-context-observed.json`（保留 30 天，不随定时后台同步覆盖）；`manual` 模式不受观测值压低。可通过管理页清除按钮、手动「同步上游能力」或保存配置清除观测上限：保存时对接口格式、地址、密钥或模型与上下文设置发生变动的档案清除对应观测上限，若这些字段均未变动（如原样重新保存、仅改名或调整路由/思考档位）则清除当前全部档案的观测上限（早于清除时间的挂起观测不会复活）。
+- **后台同步与开关**：开启管理页的「自动同步上游模型能力」（默认开启）时，管理服务会在启动、保存模型配置和每 6 小时携带服务 API Key 请求上游 `/models` 刷新缓存（缓存仅存 SHA-256 键、容量和档位，不存明文 Key 或地址）；**仅当存在 `auto` 档案（`contextMode` 或 `effortsMode` 为 `auto`）时才在后台请求对应服务，全部档案为 `manual` 时自动跳过**（管理页手动「同步上游能力」和查询建议值不受影响），关闭开关后停止一切后台请求。「附带 Codex 客户端版本参数探测清单」（`?client_version=0.160.0`）默认关闭，仅在管理页明确开启后才会发送。
 - **可选参数回退**：服务商用 400 拒绝某个可选参数（例如 `reasoning.summary`、`max_tokens`）时，去掉它重试一次并在本次会话内记住，日志打印 `[model] … retrying without …`。
 - **已知网关问题**：有的聚合网关用 Responses 格式转发 Claude 时，带工具就返回 `native_thinking_replay_mismatch`。Claude 请用 Anthropic 格式。
 
@@ -141,6 +144,15 @@ Bot 做有风险的操作前，原版会问官方分类服务。这里改用你�
 原版要求 Bot 把回复拆成 2–4 条 `SendToUser`。本项目的模型层等整段回复结束才把工具调用交给 Harness（避免重试时重复执行），而可靠性层执行工具前要先写盘，几条消息同时启动时谁先写完谁先发。`host/runtime/reliability/tool-order.mjs` 按书写顺序让每条 `SendToUser` / `SendToAgent` 等上一条执行完，其他工具照常并行；前一条最多等 15 秒。并发回复用到同一个调用 ID 时，这条消息不参与排序，而不是让对话出错。
 
 模型换了调用 ID 却要求重发上一条已成功送达的同样文本时，适配层以不可重试错误结束这一轮，不会重复发送。
+
+### 回合连续性与状态提示
+
+`host/runtime/turn-continuity.mjs`（经 `recovered-host-flow.mjs`、`recovered-engine.mjs`、`recovered-harness.mjs`、`recovered-host-execution.mjs` 与 `model-errors.mjs` 注入）负责多步工具回合的收尾、重试与状态提示：
+
+- **静默工具收尾提醒**：`detectSilentToolCallEnding` 识别在最后一次成功 `SendToUser` / `SendMessage` / `ReactToMessage` 之后又执行了实质性工具调用（支持多条进度 `SendToUser`、先调工具再发进度、并行调用以及纯文本/仅思考收尾），而 `update_state`、`TodoWrite` / `todo_write` 等记账工具不计入未送达工作；`TurnRuntime.ensureUserReply` 配合不重发旧内容的收尾提示，每轮最多触发 2 次收尾提醒（含原版首轮与追加循环），并在每次收尾提醒上写入 `sand.closing_send_nudge` 追踪属性。
+- **空响应与漏发 `SendToUser` 重试**：`buildAgentForRun` 仅对普通用户回合开启 `enableEmptyResponseRetry: true`（子代理、`isSilenceAllowed` 的定时任务/后台唤醒/广播，以及群聊成员回合保持关闭，避免在允许保持静默的回合强推模型发消息）。引擎步内重试在后续实质性工具结果后不再被早前的进度 `SendToUser` 屏蔽，同时将每轮空响应/漏发 `SendToUser` 的可见性重试共同限制在最多 2 次。
+- **`length` 输出截断自动续写**：`model-errors.mjs` 将模型 `length` 截断映射为 `OutputTokensLimitExceededError`，由 `AbstractUserMessageActionHandler.runWithMaxTokensRetry` 注入提示词拆小并续写，每步只续写一次；再次截断则以不可重试的错误中止，保留原始截断错误信息，而不是覆写成笼统的 `step-retries`，Runner 也不会重试整轮。只续写一次，是因为每次截断的部分回复都会留在历史里，第二次续写的请求会以这段 assistant 回复结尾，新版 Claude 会以「不支持 prefill」拒绝。
+- **工作中状态提示**：`RunLifecycle.beginSessionRun` 在进入运行态时立即写入 `{ kind: 'thinking' }`，且 `resolveNamedActivityHold` 在中段 `send-message` 更新时保持 `thinking`（直到 `turn-ended` 与 `endSessionRun` 清空），避免回合启动或中段进度消息后状态短暂空白。
 
 ### 执行电脑
 
@@ -199,12 +211,14 @@ Bot 做有风险的操作前，原版会问官方分类服务。这里改用你�
 
 **界面包**（`web/patchers/patch.mjs`）：和 Android 走同一条路生成界面；在界面入口的官方脚本前插入 `boot-data.js`、`compat.js`、`bridge.js`、`web-shell.js`、样式和 Web App 清单，CSP 的 `frame-src` 加 `'self'`、`connect-src` 加 `wss:`。输出 ZIP 的第一项 `web-bundle.json`（`grokbot-web-bundle/v1`）列出其余文件的大小和 SHA-256。界面包含有官方界面，只装在用户自己的 Host 上，不进仓库、不进 Release。`--upload` 用 `upload.mjs` 登录管理 API、上传、启用后退出登录。
 
-**Host 端**（`host/server/web-client.mjs`）：
+**Host 端**（`host/server/web-client.mjs`、`web-routes.mjs`）：
+
+- **独立的端口和网址**：界面包里是官方界面的代码，所以网页版不放在管理页的网址下。Host 另开一个监听端口（容器内 8001，Compose 默认映射到 18081，`GROKBOT_WEB_PUBLIC_PORT` 可改，`GROKBOT_WEB_PUBLIC_URL` 设定对外地址；两个地址相同时 Host 不启动）。这个端口只提供登录页、界面包、`/web/api/*` 和网页版用到的设备接口，没有管理、联邦、内部和连接器回调路由；主端口不再提供网页版，旧的 `/web` 链接跳转过去。即使同一个浏览器登录了管理页，界面包里的代码（或界面里的 XSS）也拿不到管理员的登录状态。Cookie 不区分端口，所以两边互不认对方的凭据：网页版端口只认网页版 Cookie，主端口的设备接口只认 bearer 令牌，电脑画面票据只在设备所在的端口有效。1.5.0–1.14.0 的网页版和管理页同一网址，这是 1.15.0 修复的安全问题。
 
 - **安装**：按清单核对路径、大小和摘要，限制文件数和大小，解到旁边的目录后整体换入，任何一步失败都不动原包。
-- **登录**：`/web/login` 是 Host 自己的页面（`public/web-login.*`）。`/web/api/pair` 用配对码创建 `platform: web` 的设备，令牌放进 `grokbot_web` Cookie（HttpOnly、SameSite=Strict，https 下加 Secure）。界面文件只提供给已登录的浏览器。
-- **设备接口**：带 Cookie 的请求还必须带 `x-grokbot-web: 1` 且 Origin 同源。其他网站发这个头要经 CORS 预检，Host 从不放行，这是 SameSite 之外的第二道防线。`web` 设备没有桌面执行权限；撤销设备时一并吊销电脑画面票据、推送登记和已打开的连接。
-- **电脑画面**：iframe 直接加载 Host 的 `/vnc/desktop/`、`/vnc/fork/`；Host 在 noVNC 页面插入取自界面包的桥接脚本。
+- **登录**：`/web/login` 是 Host 自己的页面（`public/web-login.*`）。`/web/api/pair` 用配对码创建 `platform: web` 的设备，令牌放进 `grokbot_web` Cookie（HttpOnly、SameSite=Strict，https 下加 Secure）。管理页的「在此浏览器打开」生成一次性、两分钟有效的票据，放在网址的 `#` 片段里交给登录页换取 Cookie，不在管理页网址下设置 Cookie。界面文件只提供给已登录的浏览器；界面 HTML 带 `frame-ancestors`、`object-src 'none'` 和 `base-uri 'self'`。
+- **设备接口**：带 Cookie 的请求还必须带 `x-grokbot-web: 1` 且 Origin 与网页版网址同源。其他网站发这个头要经 CORS 预检，Host 从不放行，这是 SameSite 之外的第二道防线。`web` 设备没有桌面执行权限；撤销设备时一并吊销电脑画面票据、推送登记和已打开的连接。
+- **电脑画面**：iframe 直接加载网页版端口上的 `/vnc/desktop/`、`/vnc/fork/`；Host 在 noVNC 页面插入取自界面包的桥接脚本。
 
 **浏览器层**（`web/client/`）：
 
@@ -295,7 +309,7 @@ node --test "web/tests/*.test.mjs"       # 网页版
 - Host 的网页版路由测试需要先执行 `npm ci --prefix host/server --omit=dev --ignore-scripts`，否则这一项跳过。
 - 在 Git Bash 里运行 Host 测试时，PATH 里的 `/usr/bin/tar` 会让两项部署用例失败，要把 `C:\Windows\System32` 放在前面，使用 Windows 自带的 `tar.exe`。
 - 依赖官方原包的用例默认跳过。把原包放在 Git 忽略的 `inputs/` 并设置环境变量后才会运行：`PROKBOT_ANDROID_TEST_SOURCE`、`PROKBOT_WEB_TEST_SOURCE`（1.1.0 安装包）、`PROKBOT_WEB_TEST_FALLBACK_SOURCE`（0.71.2 安装包）、`PROKBOT_TEST_HOST_ARCHIVE`（Host 原包，未设置时找 `inputs/host/sand-host-bundle-d0a4baa.tgz`）。
-- 网页版浏览器测试：`python web/tests/browser-flows.py <界面包>`，需要 Playwright（`pip install playwright`、`playwright install chromium firefox webkit`），在 8 种设备尺寸上跑登录、对话、看图、通知、返回和退出。改了 `android/client/` 或 `web/` 要用 1.1.0 和 0.71.2 两种界面包各跑一次。
+- 网页版浏览器测试：`python web/tests/browser-flows.py <界面包>`（另外检查管理页的打开票据、旧 `/web` 跳转，以及界面代码读写不了管理接口），需要 Playwright（`pip install playwright`、`playwright install chromium firefox webkit`），在 8 种设备尺寸上跑登录、对话、看图、通知、返回和退出。改了 `android/client/` 或 `web/` 要用 1.1.0 和 0.71.2 两种界面包各跑一次。
 - iOS 测试：
   - `python3 -B -m unittest discover -s ios/tools/hbc98/tests`（在仓库根目录运行，HBC 98 解析与补丁生成单测）；
   - `python3 ios/tests/ios-release.test.py`、`ios-signing.test.py`、`ios-pairing-credentials.test.py`、`ios-app-intents-source.test.py`、`ios-pages-rpc.test.py`（跨平台离线运行）；
@@ -345,4 +359,4 @@ node --expose-internals windows/tools/inspect-desktop-preload.mjs <preload.cjs> 
 - 网页版：只能使用 Host 上的 Bot 电脑；不支持 Tailcat；http 地址下麦克风、语音输入和通知不可用，页面关闭后没有通知；没有在真机浏览器上测试。
 - 原版桌面只有 amd64。单台 ARM 机器同时运行 Host 和模拟桌面的完整部署和性能没有验证。
 - Mac：Intel 1.2.3 已在 Intel Mac 上实测生成、配对和对话可用（本机图形控制和 Tailcat 尚未在 Intel Mac 上实测）；Apple 芯片 1.2.3 已通过证书签名构建校验，但尚未在 Apple 芯片真机上实测运行。
-- iOS 需要自备已解密的 IPA 和签名证书。1.27.0（29519）由贡献者在 iPad Pro 上实测了升级、配对、消息与图片附件、自动审查设置和通知流；之后重编的注入库（`78d334e4…`）只在 Mac 上跑过原生测试，没有重新上真机。iPhone 还没有完整测试；1.26.0 和 1.16.0 回退版本搭配新注入库没有真机测试。
+- iOS 需要自备已解密的 IPA 和签名证书。1.27.0（29519）由贡献者在 iPad Pro 上实测了升级、配对、消息与图片附件、自动审查设置和通知流；之后重编的注入库（`053542bc…`）只在 Mac 上跑过离线与原生测试，尚未重新上真机验证。iPhone 还没有完整实测；1.26.0 和 1.16.0 回退版本搭配新注入库也没有真机测试。

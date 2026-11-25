@@ -46,9 +46,10 @@ class AdminUI(unittest.TestCase):
         cls.addClassCleanup(cls.browser.close)
 
     def start(self, view='overview', *, mobile=False, locale='en-US', initial='ready', authenticated=True, demo_bot=False,
-              legacy=None):
+              legacy=None, skills=None):
         self.mode, self.authenticated, self.reply = initial, authenticated, 'ok'
-        self.demo_bot, self.legacy, self.saved = demo_bot, legacy, None
+        self.demo_bot, self.legacy, self.saved, self.skills = demo_bot, legacy, None, skills or []
+        self.resolve_calls, self.sync_settings_saved, self.observed_cleared = [], None, []
         self.requests, self.unexpected = [], []
         viewport = {'width': 390, 'height': 844} if mobile else {'width': 1440, 'height': 940} if view == 'model' else {'width': 1280, 'height': 900}
         context = self.browser.new_context(locale=locale, timezone_id='UTC',
@@ -115,6 +116,38 @@ class AdminUI(unittest.TestCase):
         if key == 'model' and req.method == 'PUT':
             self.saved, self.legacy = req.post_data_json, None
             model.update(routingMigrated=False, legacyAdaptiveRouting=False)
+        if key == 'model/resolve' and req.method == 'POST':
+            body = req.post_data_json or {}
+            self.resolve_calls.append(body)
+            model_id = body.get('model', '')
+            provider_id = body.get('providerId', '')
+            if model_id == 'gpt-5-chat-latest':
+                return route.fulfill(json={'model': {
+                    'id': model_id, 'efforts': ['low'], 'source': 'reference',
+                    'contextWindowTokens': 128000, 'summaryThresholdTokens': 96000,
+                    'contextSource': 'reference', 'matchedFamily': 'gpt-5-chat',
+                }})
+            if model_id == 'provider-model' and provider_id == 'backup':
+                return route.fulfill(json={'model': {
+                    'id': model_id, 'efforts': ['medium', 'high'], 'source': 'provider',
+                    'contextWindowTokens': 256000, 'summaryThresholdTokens': 192000,
+                    'contextSource': 'provider',
+                }})
+            return route.fulfill(json={'model': {
+                'id': model_id, 'efforts': [], 'source': 'manual',
+                'contextWindowTokens': 0, 'summaryThresholdTokens': 0, 'contextSource': 'unknown',
+            }})
+        if key == 'model/sync-settings' and req.method == 'PUT':
+            self.sync_settings_saved = req.post_data_json
+            model['contextSync'] = {
+                'autoSync': self.sync_settings_saved.get('autoSync', True),
+                'codexManifestProbe': self.sync_settings_saved.get('codexManifestProbe', False),
+                'providers': {},
+            }
+            return route.fulfill(json=model)
+        if key == 'model/observed/clear' and req.method == 'POST':
+            self.observed_cleared.append(req.post_data_json)
+            return route.fulfill(json=model)
         if key == 'voice' and req.method == 'PUT':
             self.voice_saved = req.post_data_json
         fixtures = {'status': {'model': model, 'devices': [], 'pairingKeys': [], 'notifications': {},
@@ -128,10 +161,19 @@ class AdminUI(unittest.TestCase):
             'voice': {'enabled': True, 'asr': {'configured': False}, 'tts': {'provider': 'openai',
                 'endpoint': 'https://voice.example.invalid', 'model': 'demo', 'voice': 'demo', 'speed': 1},
                 'selection': {'enabled': True, 'candidates': []}},
-            'media': {'defaults': {}}, 'web-services': {'defaults': {}}, 'harness': {}, 'skills': [],
+            'media': {'defaults': {}}, 'web-services': {'defaults': {}}, 'harness': {}, 'skills': self.skills,
             'apps': {'apps': []}, 'network': {'enabled': False}, 'execution': {'enabled': False, 'url': '', 'name': 'Demo node'},
             'federation': {'peers': []}, 'webhooks': [], 'sharing': [],
             'model/routing-log': {'items': []}, 'model': model}
+        if key.startswith('skills/'):
+            skill_id = key.removeprefix('skills/')
+            entry = next((item for item in self.skills if item['id'] == skill_id), None)
+            if entry is None:
+                return route.fulfill(status=404, json={'error': 'Skill not found'})
+            return route.fulfill(json={**entry, 'content': {
+                'id': entry['id'], 'name': entry['name'], 'description': entry['description'],
+                'requiresTools': [], 'files': [{'path': 'SKILL.md', 'encoding': 'utf8', 'content': '# Demo\n'}],
+            }})
         if key not in fixtures:
             self.unexpected.append('unexpected demo API: ' + key)
             return route.fulfill(status=404, json={'error': 'Unknown demo endpoint'})
@@ -310,6 +352,57 @@ class AdminUI(unittest.TestCase):
         expect(page.locator('#model-bot-routes')).to_contain_text('Backup profile')
         self.capture('admin-model')
 
+    def test_model_profile_manual_preservation_provider_switch_and_suggestions(self):
+        page = self.start(view='model')
+        # 1. Upstream sync toggles default to autoSync=True, codexManifestProbe=False and persist via PUT
+        page.locator('#model-profiles + details summary').click()
+        auto_sync = page.locator('#model-auto-sync')
+        codex_probe = page.locator('#model-codex-probe')
+        expect(auto_sync).to_be_checked()
+        expect(codex_probe).not_to_be_checked()
+        with page.expect_response(lambda r: r.url.endswith('/admin/api/model/sync-settings')):
+            codex_probe.click()
+        self.assertEqual(self.sync_settings_saved, {'codexManifestProbe': True})
+
+        # 2. Editing a manual profile's model ID must NOT clear manual context or effort checkboxes
+        page.get_by_role('button', name='More actions for Primary profile').click()
+        page.get_by_role('menuitem', name='Edit').click()
+        dialog = page.locator('#model-profile-editor')
+        expect(dialog).to_be_visible()
+        dialog.locator('[name=contextWindowTokens]').fill('128K')
+        dialog.locator('[name=contextWindowTokens]').dispatch_event('input')
+        expect(dialog.locator('[name=contextModeAuto]')).not_to_be_checked()
+        expect(dialog.locator('[name=effort-low]')).to_be_checked()
+        dialog.locator('[name=model]').fill('gpt-5-chat-latest')
+        with page.expect_response(lambda r: r.url.endswith('/admin/api/model/resolve')):
+            dialog.locator('[name=model]').dispatch_event('change')
+        # Manual 128K and manual effort 'low' survive model ID change
+        expect(dialog.locator('[name=contextWindowTokens]')).to_have_value('128K')
+        expect(dialog.locator('[name=effort-low]')).to_be_checked()
+        dialog.get_by_role('button', name='Cancel').click()
+
+        # 3. New auto profile shows reference as suggestion (not auto-filled) and re-queries on provider switch
+        page.locator('#add-model-profile').click()
+        expect(dialog).to_be_visible()
+        expect(dialog.locator('[name=contextModeAuto]')).to_be_checked()
+        dialog.locator('[name=model]').fill('gpt-5-chat-latest')
+        with page.expect_response(lambda r: r.url.endswith('/admin/api/model/resolve')):
+            dialog.locator('[name=model]').dispatch_event('change')
+        expect(dialog.locator('[name=contextWindowTokens]')).to_have_value('')
+        apply_btn = dialog.get_by_role('button', name='Apply suggestion')
+        expect(apply_btn).to_be_visible()
+        apply_btn.click()
+        expect(dialog.locator('[name=contextWindowTokens]')).to_have_value('128K')
+        expect(dialog.locator('[name=contextModeAuto]')).not_to_be_checked()
+
+        # Switch back to auto and change model + provider -> provider switch re-queries /resolve
+        dialog.locator('[name=contextModeAuto]').check()
+        dialog.locator('[name=model]').fill('provider-model')
+        with page.expect_response(lambda r: r.url.endswith('/admin/api/model/resolve')):
+            dialog.locator('[name=providerId]').select_option('backup')
+        expect(dialog.locator('[name=contextWindowTokens]')).to_have_value('256K')
+        dialog.get_by_role('button', name='Cancel').click()
+
     def test_legacy_model_migration_mentions_jev_only_for_adaptive_routing(self):
         for legacy in ('single', 'adaptive'):
             with self.subTest(legacy=legacy):
@@ -370,6 +463,54 @@ class AdminUI(unittest.TestCase):
             {'id': saved['selection']['candidates'][0]['id'], 'name': 'Research voice', 'provider': 'openai',
              'referenceId': '', 'voice': 'sage', 'keywords': ['研究', '分析', 'research', 'analysis'], 'languages': ['zh', 'en']}
         ]})
+
+    def test_skills_page_localization(self):
+        demo_skills = [
+            {
+                'id': 'learn-from-demonstration', 'source': 'host', 'enabled': True, 'current': 'd1e7bbcd1234',
+                'name': 'Learn from demonstration',
+                'description': 'Turn a recorded task into a reusable skill.',
+                'localizedName': {'en': 'Learn from demonstration', 'zh-CN': '从演示中学习'},
+                'localizedDescription': {'en': 'Turn a recorded task into a reusable skill.', 'zh-CN': '将录制的操作整理为可复用的技能。'},
+                'versions': [{'id': 'd1e7bbcd1234', 'at': 1700000000000, 'name': 'Learn from demonstration', 'description': 'Turn a recorded task into a reusable skill.'}],
+            },
+            {
+                'id': 'p-demo-vault-safe-login-d81df759', 'source': 'plugin:demo-vault', 'enabled': False, 'current': 'd81df7591234',
+                'name': 'Demo Vault Safe Login',
+                'description': 'Look up accounts and sign in safely with approval cards.',
+                'localizedName': {'en': 'Demo Vault Safe Login', 'zh-CN': '演示密码库安全登录'},
+                'localizedDescription': {'en': 'Look up accounts and sign in safely with approval cards.', 'zh-CN': '查询账号并配合审批卡片安全登录。'},
+                'versions': [],
+            },
+            {
+                'id': 'custom-skill', 'source': 'host', 'enabled': True, 'current': 'abcdef123456',
+                'name': 'My Custom Skill', 'description': 'Custom instructions.', 'versions': [],
+            },
+        ]
+        for locale, expected_host_title, expected_host_desc, expected_app_title, expected_app_desc, expected_source, edit_label in [
+            ('zh-CN', '从演示中学习', '将录制的操作整理为可复用的技能。', '演示密码库安全登录', '查询账号并配合审批卡片安全登录。', '应用附带', '编辑'),
+            ('en-US', 'Learn from demonstration', 'Turn a recorded task into a reusable skill.', 'Demo Vault Safe Login', 'Look up accounts and sign in safely with approval cards.', 'Bundled with app', 'Edit'),
+        ]:
+            with self.subTest(locale=locale):
+                page = self.start(view='skills', locale=locale, skills=demo_skills)
+                rows = page.locator('#skills-list .item')
+                expect(rows).to_have_count(3)
+                expect(rows.nth(0)).to_contain_text(expected_host_title)
+                expect(rows.nth(0)).to_contain_text(expected_host_desc)
+                expect(rows.nth(1)).to_contain_text(expected_app_title)
+                expect(rows.nth(1)).to_contain_text(expected_app_desc)
+                expect(rows.nth(1)).to_contain_text(expected_source)
+                expect(rows.nth(2)).to_contain_text('My Custom Skill')
+                rows.nth(0).get_by_role('button', name=edit_label).click()
+                expect(page.locator('#skill-editor')).to_be_visible()
+                expect(page.locator('#skill-editor-title')).to_have_text(expected_host_title)
+                page.locator('#skill-editor button[data-close].icon-btn').click()
+                page.goto(self.origin + '/?view=sharing', wait_until='networkidle')
+                page.locator('#sharing-skill').click()
+                expect(page.locator('#sharing-select')).to_be_visible()
+                options = page.locator('#sharing-select-form select[name=skill] option')
+                expect(options).to_have_count(3)
+                self.assertEqual(options.all_text_contents(), [expected_host_title, expected_app_title, 'My Custom Skill'])
 
 
 if __name__ == '__main__':

@@ -6,11 +6,11 @@
 
 <p>
 <!-- client-badges:start -->
-  <a href="#client-versions"><img alt="Windows official 1.2.3 x64" src="https://img.shields.io/badge/Windows%20official-1.2.3%20x64-0078D4?logo=windows&logoColor=white"></a>
+  <a href="#client-versions"><img alt="Windows official 1.3.0 x64 (not supported by this patch)" src="https://img.shields.io/badge/Windows%20official-1.3.0%20x64%20(not%20supported%20by%20this%20patch)-0078D4?logo=windows&logoColor=white"></a>
   <a href="#client-versions"><img alt="Windows patch accepts 1.2.3 x64 (recommended), 1.1.0, 0.71.2" src="https://img.shields.io/badge/Windows%20patch%20accepts-1.2.3%20x64%20(recommended)%2C%201.1.0%2C%200.71.2-237E55?logo=windows&logoColor=white"></a>
-  <a href="#client-versions"><img alt="Linux official 1.2.3 x64 / ARM64" src="https://img.shields.io/badge/Linux%20official-1.2.3%20x64%20%2F%20ARM64-237E55?logo=linux&logoColor=white"></a>
-  <a href="#client-versions"><img alt="macOS official 1.2.3 ARM64 / Intel" src="https://img.shields.io/badge/macOS%20official-1.2.3%20ARM64%20%2F%20Intel-111111?logo=apple&logoColor=white"></a>
-  <a href="#client-versions"><img alt="iOS official 1.27.0" src="https://img.shields.io/badge/iOS%20official-1.27.0-111111?logo=apple&logoColor=white"></a>
+  <a href="#client-versions"><img alt="Linux official 1.3.0 x64 / ARM64 (not supported by this patch)" src="https://img.shields.io/badge/Linux%20official-1.3.0%20x64%20%2F%20ARM64%20(not%20supported%20by%20this%20patch)-237E55?logo=linux&logoColor=white"></a>
+  <a href="#client-versions"><img alt="macOS official 1.3.0 ARM64 / Intel" src="https://img.shields.io/badge/macOS%20official-1.3.0%20ARM64%20%2F%20Intel-111111?logo=apple&logoColor=white"></a>
+  <a href="#client-versions"><img alt="iOS official 1.28.0" src="https://img.shields.io/badge/iOS%20official-1.28.0-111111?logo=apple&logoColor=white"></a>
   <a href="#client-versions"><img alt="Android shell 1.1.0" src="https://img.shields.io/badge/Unofficial%20Android-1.1.0-237E55?logo=android&logoColor=white"></a>
   <a href="#client-versions"><img alt="Web client 1.1.0" src="https://img.shields.io/badge/Web%20client-1.1.0-237E55?logo=googlechrome&logoColor=white"></a>
 <!-- client-badges:end -->
@@ -66,7 +66,7 @@ Models run through their APIs, so **the server needs no GPU**. It runs two conta
 | --- | --- | --- |
 | CPU / memory | 2 cores / 4 GB | 4 cores / 8 GB |
 | Free disk space | 30 GB | 50 GB |
-| System | 64-bit Linux, Docker 26+ and Compose 2.26+, Python 3.10+ | Ubuntu 24.04 (its own Docker packages are enough) |
+| System | 64-bit Linux, Docker with Compose v2, Python 3.10+ | Ubuntu 24.04 (its own Docker packages are enough); with Docker 26+ and Compose 2.26+ the Bot can read its memory on its own computer |
 
 - Fresh deployments on 2 cores / 4 GB and 4 cores / 8 GB both worked in testing; 2 cores / 2 GB did not. Sized for one person or a household; heavy simultaneous use by several people is untested.
 - Typical use: the Host takes about 0.7 GB of memory and the Bot's computer about 0.8 GB (peak 1.7 GB); the images take about 13 GB.
@@ -78,15 +78,15 @@ You also need a model API with tool calling (and image input, if the Bot should 
 
 <a id="client-versions"></a>
 <!-- client-versions:start -->
-**Which official version should I download?** The one in the right column; the patches accept only those versions. Where two versions are listed, use the recommended newer one first and switch to the older one only if it does not work. The left column is the latest official release (checked 2026-11-24); when it is newer, wait until this project supports it.
+**Which official version should I download?** The one in the right column; the patches accept only those versions. Where two versions are listed, use the recommended newer one first and switch to the older one only if it does not work. The left column is the latest official release (checked 2026-11-25); when it is newer, wait until this project supports it.
 
 | Platform | Latest official | Version this project needs |
 | --- | --- | --- |
-| Windows x64 | [1.2.3](https://api2.cursor.sh/updates/api/download/stable/win32-x64-user/sand) | **1.2.3** (recommended); 1.1.0, 0.71.2 if it does not work |
-| Linux x64 / ARM64 | [1.2.3](https://api2.cursor.sh/updates/api/download/stable/linux-x64/sand) | 1.2.3 (.deb archive; tested on Ubuntu 22.04 x64 under WSL2; native desktops and ARM64 untested) |
-| macOS ARM64 | [1.2.3](https://api2.cursor.sh/updates/api/download/stable/darwin-arm64/sand) | 1.2.3 (not tested on a Mac) |
-| macOS Intel (x64) | [1.2.3](https://api2.cursor.sh/updates/api/download/stable/darwin-x64/sand) | 1.2.3 (tested working on an Intel Mac with 1.2.3) |
-| iOS | [1.27.0](https://apps.apple.com/us/app/grok-bot/id6794501026) | 1.27.0 (build 29519; pairing, messaging and App Intents verified on an iPad) |
+| Windows x64 | [1.3.0](https://api2.cursor.sh/updates/api/download/stable/win32-x64-user/sand) (not supported by this patch) | **1.2.3** (recommended); 1.1.0, 0.71.2 if it does not work |
+| Linux x64 / ARM64 | [1.3.0](https://api2.cursor.sh/updates/api/download/stable/linux-x64/sand) (not supported by this patch) | 1.2.3 (not yet adapted to 1.3.0; .deb archive; tested on Ubuntu 22.04 x64 under WSL2; native desktops and ARM64 untested) |
+| macOS ARM64 | [1.3.0](https://api2.cursor.sh/updates/api/download/stable/darwin-arm64/sand) | 1.2.3 (not yet adapted to 1.3.0; not tested on a Mac) |
+| macOS Intel (x64) | [1.3.0](https://api2.cursor.sh/updates/api/download/stable/darwin-x64/sand) | 1.2.3 (not yet adapted to 1.3.0; tested working on an Intel Mac with 1.2.3) |
+| iOS | [1.28.0](https://apps.apple.com/us/app/grok-bot/id6794501026) (not supported by this patch) | 1.27.0 (build 29519; pairing, messaging and App Intents verified on an iPad) |
 | Android 9+ (unofficial) | Does not use the official Android app | App **1.1.0** (build 10100), interface taken from the Windows **1.1.0** installer (recommended; 0.71.2 if it does not work) |
 | Web client (browser, unofficial) | Nothing to install | Interface taken from the Windows **1.1.0** installer (recommended; 0.71.2 if it does not work), built once and uploaded to your Host |
 | Linux server | n/a | Host `d0a4baa`; Bot computer `9d2ac1b` (x86_64) |
@@ -106,7 +106,7 @@ ProkBot Plus has its own version numbers; see the [latest release](https://githu
 <a id="android-client"></a><a id="web-client"></a>
 **The Android app** does not modify the official Android app (it is tamper-protected). It puts the official desktop interface into a shell written by this project. You can watch the Bot's computer live and take control, and notifications work without Google push. You sign the APK with your own key.
 
-**The web client** is built on a computer and uploaded to your Host. Then open `<Host address>/web/` in a browser on any device and enter a pairing code; you can also add it to the home screen. Use HTTPS when you access it from outside. See the [web client guide](web/README.en.md).
+**The web client** is built on a computer and uploaded to your Host. Then open the web client address (its own Host port, 18081 by default, apart from the admin page) in a browser on any device and enter a pairing code; you can also add it to the home screen. Use HTTPS when you access it from outside, with an entry of its own for the web client. See the [web client guide](web/README.en.md).
 
 ## Install
 

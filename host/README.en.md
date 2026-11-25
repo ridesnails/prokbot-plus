@@ -2,7 +2,7 @@
 
 [简体中文](README.md)
 
-A self-hosted Grok Bot server. The Host builds on Linux amd64 / arm64; the official execution desktop is amd64 only, so an ARM machine pairs with a separate amd64 node or emulates it (experimental). Requires Python 3.10+, Docker Engine 26.0+ (API 1.45+) and Docker Compose 2.26.0+.
+A self-hosted Grok Bot server. The Host builds on Linux amd64 / arm64; the official execution desktop is amd64 only, so an ARM machine pairs with a separate amd64 node or emulates it (experimental). Requires Python 3.10+, Docker and Compose v2; with Docker Engine 26.0+ (API 1.45+) and Compose 2.26.0+, a same-machine deployment also lets the Bot read its memory (see [Data and backups](#data-and-backups)).
 
 See the [deployment guide](../docs/AI-INSTALL.en.md) for the full steps and the [technical documentation](../docs/ARCHITECTURE.en.md) for how it works.
 
@@ -16,13 +16,55 @@ python3 deploy.py init
 python3 deploy.py up
 ```
 
-A new installation listens only on loopback by default; set a custom address during `init` (`python3 deploy.py init --help`). For an existing instance use `update`, not another `init`. First-time setup, models and pairing are in the deployment guide.
+A new installation listens only on loopback by default; set a custom address during `init` (`python3 deploy.py init --help`). For an existing instance use `update`, not another `init`. First-time setup, models and pairing are in the deployment guide. The web client has its own port and address; see [Web client](#web-client).
+
+## Web client
+
+The admin page's **Web client** section accepts a web interface bundle (see the [web client guide](../web/README.en.md) for building one); browsers can then sign in with a pairing code. Nothing changes until one is uploaded.
+
+The web client is served on a second Host port (8001 in the container); the admin page and the apps keep using 8000. The two ports are two different origins: the bundle contains the official interface's code, and on an origin of its own that code cannot call the admin API, even in a browser that has signed in to the admin page. The web client port serves only the sign-in page, the bundle and the device API the web client uses; old `/web/` links on the admin address redirect there.
+
+- **Port**: Compose maps the web client to `GROKBOT_WEB_PUBLIC_PORT` in `.env` (`init --web-port`, by default `--port` plus one, that is 18081; instances from before 1.15.0 lack the setting and get 18081). It listens on the same address as the admin page, set by `GROKBOT_LISTEN_ADDRESS`. Direct access by IP address or host name plus port needs nothing else: the web client address is the same host name with the web client port.
+- **Several instances**: each instance on one machine needs its own `GROKBOT_PUBLIC_PORT` and `GROKBOT_WEB_PUBLIC_PORT`. `up`, `update`, `recover` and `doctor` refuse ports another container or program already uses, or two equal ports, before building, stopping or unpacking anything.
+- **HTTPS reverse proxy**: give the web client an entry of its own, preferably its own subdomain, and tell the Host both addresses: add `--web-public-url https://web.bot.example.org` to `init` for a new instance, or add `GROKBOT_WEB_PUBLIC_URL` to the `.env` of an existing one and run `update`. The two addresses must differ, or the Host refuses to start, and `up`, `update`, `recover` and `doctor` refuse them before changing anything; do not put the web client under a path of the admin address either, such as `https://bot.example.org/web/`.
+- **Web client address**: `webClientUrl` in the `init` output, the `Web client` line at the end of `up` and `update`, `webClientUrl` in `doctor` and the admin page's **Web client** section all show it.
+
+```sh
+GROKBOT_PUBLIC_URL=https://bot.example.org
+GROKBOT_WEB_PUBLIC_URL=https://web.bot.example.org
+```
+
+The web client entry forwards to `127.0.0.1:18081` and allows WebSocket, which the Bot computer view and realtime voice use. With nginx:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name web.bot.example.org;
+    # ssl_certificate and ssl_certificate_key for your certificate
+    location / {
+        proxy_pass http://127.0.0.1:18081;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 1h;
+    }
+}
+```
 
 ## Environment variables
 
 Settings in the instance `.env` file tune the Host container (applied to both single-machine and standalone Host deployments):
 
 - `GROKBOT_BLOB_DB_QUICK_CHECK_MAX_BYTES`: Byte threshold for fast-opening large `conversation-blobs.db` files, defaulting to `33554432` (32 MiB). When a database exceeds this size and has no pending recovery marker, open runs a structural probe to avoid startup stalls and then runs `PRAGMA quick_check(1)` off the main event loop in a worker thread using `node:sqlite`; if corruption is found, a `.quickcheck-required` marker is written so the next open falls back to the stock full quarantine and salvage flow. Note that `quick_check(1)` only stops after reporting the first error and still scans the entire file for healthy large databases; the verified stamp tracks `(size, mtimeMs)`, which WAL checkpoints update, so active large databases will typically rescan in the background on cold restarts. Set this to `infinity` to restore the original synchronous `quick_check` on every open.
+
+## Model capability sync and cache
+
+Each model profile can choose `auto` or `manual` independently. Existing profiles upgraded from earlier releases (including unmigrated legacy single-provider `model.env`, even with context `0`) remain `manual` in both the admin UI and runtime, never silently applying built-in context-window guesses. `host-admin.mjs model-set` switches to `manual` only when `--context` / `--efforts` is passed, preserving the existing mode otherwise.
+
+- **Cache files**: the admin service writes upstream `/models` context limits (≥ 1024), supported reasoning efforts, and sync switches to `/data/model-context-cache.json`; the Host runtime writes learned overflow ceilings to `/data/model-context-observed.json` (kept for 30 days, persisted only on comparison errors such as `a + b > c` or two consistent observations). Both files are keyed by SHA-256 digests of format, base URL, and model ID, without plaintext API keys or URLs.
+- **Manual mode and self-healing**: `manual` profiles are never clamped by observed ceilings, and both `manual` profiles and admin UI recommendations use 75% of the full window for the summary threshold. `auto` context mode uses only upstream `/models` values and runtime observed ceilings (built-in reference values appear only as suggestions in the admin UI until explicitly applied as `manual`), computing the summary threshold as 75% of the input budget after deducting output reserves (for example, 102K for a 200K Anthropic model after deducting the default 64K `max_tokens`). Observed ceilings can be cleared via "Clear observed ceiling", manual "Sync upstream", or saving the configuration: a save clears only profiles whose provider format, URL, key, model or context settings changed, and all profiles when none of these changed (an unchanged save, a rename or a route edit). Observations produced before clearing are discarded.
+- **Background sync switches**: under "Upstream sync settings" on the admin Model page, "Auto-sync upstream model capabilities" (on by default) fetches `/models` with your API key at startup, on save, and every 6 hours only for providers with at least one `auto` profile (skipping when all profiles are `manual`; turning the toggle off stops all background requests); "Probe Codex client manifest parameter" (`?client_version=0.160.0`) is off by default and sent only when explicitly enabled.
 
 ## Offline builds
 
@@ -46,9 +88,9 @@ python3 deploy.py backup < /dev/null
 - A single-machine deployment backs up `host-data`, `box-home` and `box-workspace`; a standalone Host has only `host-data`, and the execution node backs up `gateway-data` and the two desktop volumes separately.
 - A backup holds only volume archives and a checksum manifest, **not images, the instance's `.env` or the host system**. Volumes hold pairing identities, model keys, chats and workspace files; keep backups private.
 - A backup pauses running containers and restores their state afterwards. `update` builds the candidate first, then stops the old services and backs up. A split deployment is not an atomic snapshot across machines; stop writes on both sides.
-- A single-machine Box mounts only the five protected data trees `agents`, `user-memory`, `workflows`, `plugins` and `managed-skills`, and only below `/data/runtime/host-data/<tree>`. `agent-transcripts`, `connector-secrets`, `model.env`, `auth.json`, `projects` and internal tokens are never exposed to Box; the databases inside `agents/<id>/` are visible to the Bot's Shell but refused to the Read tool, as in the official same-machine setup. For a same-machine deployment, the tool requires Docker Engine 26.0+, API 1.45+ and Compose 2.26.0+ before writing or starting the configuration (`--host-only` does not); data initialization changes ownership and mode only on directories it creates, never existing top-level trees. Deployment, backup and recovery validate the complete mount set.
+- **The Bot reading its memory**: on a same-machine deployment with Docker Engine 26.0+ (API 1.45+) and Compose 2.26.0+, `up`, `update` and `recover` add `release/compose.memory.yaml`, which mounts the five data trees `agents`, `user-memory`, `workflows`, `plugins` and `managed-skills` **read-only** at `/data/runtime/host-data/<tree>` in Box. The Bot can look through its memory but cannot change any Bot's settings, memory or automations. `agent-transcripts`, `connector-secrets`, `model.env`, `auth.json`, `projects` and internal tokens are never exposed to Box; the databases inside `agents/<id>/` are visible to the Bot's Shell but refused to the Read tool, as in the official same-machine setup. With older versions the tool says so and deploys without it; `memoryMounts` in `doctor` tells whether it can be turned on, and `--host-only` mounts none of these trees. Data initialization changes ownership and mode only on directories it creates, never existing top-level trees. Deployment, backup and recovery validate the mount set. Boxes of 1.7.0–1.14.0 mount these trees writable; `backup` still backs them up, and `update` replaces them with read-only mounts.
 
-**Recover into a new instance**: keep the volume backup, the original `.env`, the matching code revision and the images separately; `serviceImages` in the manifest records full image IDs, and the target Docker must already have those images. First confirm that the original instance and any copy of its identity elsewhere are stopped, and never run `down -v` on the original project. The example below is a single-machine loopback setup; replace the directory and project name. To keep existing pairings working, recreate the original address with `--listen`, `--port` and `--public-url` on `init`. A standalone Host adds `--host-only` before `init`.
+**Recover into a new instance**: keep the volume backup, the original `.env`, the matching code revision and the images separately; `serviceImages` in the manifest records full image IDs, and the target Docker must already have those images. First confirm that the original instance and any copy of its identity elsewhere are stopped, and never run `down -v` on the original project. The example below is a single-machine loopback setup; replace the directory and project name. To keep existing pairings working, recreate the original address with `--listen`, `--port` and `--public-url` on `init` (and `--web-port` and `--web-public-url` for the web client); `recover` refuses ports another container or program already uses before unpacking. A standalone Host adds `--host-only` before `init`.
 
 ```sh
 python3 deploy.py --home "$HOME/grokbot-restored" --project grokbot-restored init < /dev/null
@@ -58,10 +100,11 @@ python3 deploy.py --home "$HOME/grokbot-restored" status < /dev/null
 
 `recover` checks the volumes, project name, topology and local image IDs, unpacks only into the new project and starts it with the recorded images only, without building, pulling or touching the original volumes. Afterwards, read old chats and files back with an original device. If startup fails, the new project's volumes are kept and the original instance is not restarted automatically.
 
-If an old manifest lacks complete `serviceImages`, or the exact images are not on this machine, the instance cannot be brought back automatically; do not guess a version from a `:local` tag. To restore data only, use `python3 release/backup.py restore --project grokbot-data-only --directory /path/to/backup --image <verified image ID> < /dev/null`; it starts nothing, and a standalone execution node uses the same entry point. To start a same-machine deployment by hand with Compose afterwards, run the command below once before `up -d`. It creates the directories the Bot's computer mounts (only where missing); without it the Bot's computer fails to start because a mount directory is missing. `deploy.py` does this automatically in `up`, `update` and `recover`.
+If an old manifest lacks complete `serviceImages`, or the exact images are not on this machine, the instance cannot be brought back automatically; do not guess a version from a `:local` tag. To restore data only, use `python3 release/backup.py restore --project grokbot-data-only --directory /path/to/backup --image <verified image ID> < /dev/null`; it starts nothing, and a standalone execution node uses the same entry point. To start a same-machine deployment by hand with Compose afterwards, `-f release/compose.yaml` is enough, but leaves memory reading off. Turn it on only after confirming Docker Engine 26.0+ and Compose 2.26.0+: run the first command below once to create the directories the Bot's computer mounts (only where missing), then pass both files to every later Compose command. Engine before 26 ignores the subpath and mounts all of `host-data`, model keys and sign-in credentials included, into the Bot's computer, and Compose before 2.26 refuses to start. `deploy.py` decides and does this automatically in `up`, `update` and `recover`.
 
 ```sh
 docker compose --env-file <instance directory>/.env -p <project> -f release/compose.yaml run --rm --no-deps --user 0:0 --entrypoint python3 host /opt/grokbot/release/data_init.py /data/runtime/host-data < /dev/null
+docker compose --env-file <instance directory>/.env -p <project> -f release/compose.yaml -f release/compose.memory.yaml up -d < /dev/null
 ```
 
 On one Docker daemon, the deployment tool uses locks so that a project is not changed concurrently and a recovered copy does not go online twice. Different daemons share no locks; the operator makes sure each identity runs only once. A crash can leave a lock behind: check the services and running operations first, and do not treat removing locks as a routine step. A project whose name ends in `_restore-in-progress` is an unfinished recovery; do not start it, and retry with another empty project.
