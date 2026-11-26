@@ -182,7 +182,7 @@ async function showWorkspace() {
   void voiceAvailability.refresh();
   accountProfile = createProfile({ request: gateway.request, window: win, auth, server: activeConfig.server, onChange: reportConnection });
   await accountProfile.refresh().catch(() => {});
-  localExec = await createLocalExec({ payload, profile, config: activeConfig, command: gateway.command, window: win });
+  localExec = await createLocalExec({ payload, profile, config: activeConfig, command: gateway.command, request: gateway.request, window: win });
   browserProviders = await createBrowserProviders({ payload, profile, config: activeConfig, window: win,
     BrowserWindow, locale: () => language.resolved });
   win.on('focus', reportFocus); win.on('blur', reportFocus);
@@ -211,6 +211,11 @@ async function showWorkspace() {
       chooseDestination: async name => {
         const result = await dialog.showSaveDialog(win, { defaultPath: path.join(app.getPath('downloads'), name) });
         return result.canceled ? null : result.filePath;
+      },
+      chooseFolder: async () => {
+        const result = await dialog.showOpenDialog(win, { defaultPath: app.getPath('downloads'),
+          buttonLabel: localText('下载', 'Download'), properties: ['openDirectory', 'createDirectory'] });
+        return result.canceled ? null : result.filePaths[0] || null;
       },
       showDownloadError: () => dialog.showMessageBox(win, { type: 'error',
         message: localText('无法下载文件，请重试。', 'Could not download this file. Try again.') }),
