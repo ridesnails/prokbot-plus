@@ -379,6 +379,61 @@ Modifications made in ProkBot Plus (2026-11-07 to 2026-11-26)
       changes targeting other computers.
     - Contributed by @jun9100 (GitHub pull request #22).
 
+27. iOS 1.28.0 (build 29649), static ChatAvatar scroll-jank fix, restored
+    Realtime Voice toggle sync, HBC 98 closure/call-frame audits, and opt-in
+    URL scroll profiler.
+    - ios/recipes/ios/ pins the official 1.28.0 (build 29649) and archives
+      1.27.0 (29519) under ios/recipes/ios/1.27.0/ alongside 1.26.0 (29388) and
+      1.16.0 (23152) as fallbacks. ios/tools/build_ios_128_recipe.py (new)
+      rebuilds the 1.28.0 HBC 98 recipes from the user's own app, keeping
+      ChatAvatar's stock "static" default on 1.28.0 (avoiding per-frame
+      GrokBotFace SVG redraws on home Bot list rows) and appending all 11
+      experimental Realtime Voice closures as NewFunction entries (with
+      callable FunctionHeader flags and safe Hermes call-frame margins,
+      preserving stock AgentPickerRow and ConnectorGrantCard closures) mounted
+      into SettingsSheet and synced with Host GET /local/voice/status.
+    - ios/tools/hbc98/audit.py adds closure-prohibit-call and
+      call-frame-overlap structural checks to guard Hermes ProhibitInvoke flags
+      and StackFrameLayout::CallerExtraRegistersAtEnd margins.
+    - ios/patchers/ios/extensions.py adds the 1.28.0 extension digests and two
+      widget scheme sites; ios/clients/ios/GBBootstrap.m adds 1.28.0
+      sentence-case label matching; ios/clients/ios/GBVoice.m intercepts
+      GET https://local.voice/local/voice/status (defaulting conservatively to
+      disabled on Host errors as well as enabled:false);
+      ios/clients/ios/GBPerf.{h,m} and GBDeepLinks.m add opt-in URL-only scroll
+      diagnostics (grokbot-local://perf/start, gated behind
+      GBDiagnosticsEnabled() and restoring Fabric probes on finish). Rebuilt
+      ios/bin/GrokBotLocal.dylib and updated all four iOS manifests.
+    - Contributed by @jun9100 (GitHub pull request #20).
+
+28. Adaptations of upstream ProkBot v2026.11.26 (684e1ba).
+    - host/runtime/reliability/seed-manifest.mjs names runtime files with "/"
+      so the reliability manifest can also be written on Windows.
+    - host/tests/reliability-prepare.test.mjs checks offline that the runtime
+      modules pinned in the manifest recipe match host/runtime, and exercises
+      prepare.mjs on a fixture; host/tests/bytepatch_checks.py expects the
+      unmodified stable harness again.
+    - The prebuilt Tailcat binaries for host/bin x64 and ARM64,
+      mac/dist/network/x64 and windows/dist/network are rebuilt with
+      host/network/build-tailcat.py from one clean commit; the Apple silicon
+      Mac binary already had the fix and is unchanged.
+    - host/server/notifications.mjs keeps the ProkBot Plus backpressured
+      replay (item 16), which already passes the upstream
+      notification-replay test; only that test is taken.
+    - The Mac build UUID change is applied to the 1.3.0 Apple silicon and
+      Intel patcher; mac/README, docs/AI-INSTALL and docs/ARCHITECTURE
+      describe signing, build UUIDs, the startup check and Tailcat builds.
+
+29. iOS 1.26.0 and 1.27.0 fallback setGroupMembers call-frame overlap fix.
+    - ios/tools/build_ios_126_recipe.py (fn#78160) and
+      ios/tools/build_ios_127_recipe.py (fn#83670): move r11 -> r7 in place
+      before Call3 in ?anon_0_setGroupMembers (preserving frame_size=21) so all
+      call source operands stay strictly below 21 - (7 + 3) = 11, regenerating
+      ios/recipes/ios/1.26.0/gateway-template.{hbc,json}.gbp.gz and
+      ios/recipes/ios/1.27.0/gateway-template.{hbc,json}.gbp.gz with 0
+      hbc98/audit.py issues across both fallback releases.
+    - Contributed by @jun9100 (GitHub pull request #27).
+
 Upstream ProkBot changes incorporated
 -------------------------------------
 
@@ -404,6 +459,30 @@ ProkBot Plus; the adaptations are listed in items 4 and 13 above.
            (only the part that stops naming a fixed bundle file)
   a2fdb31  only the Host part: start(0) takes an ephemeral web client port;
            its desktop client part is not included yet
+
+ProkBot Plus 1.18.0 incorporates these changes from upstream ProkBot
+release v2026.11.26, by the same contributors and under the same license;
+the adaptations are listed in item 28 above.
+
+  684e1ba  release: v2026.11.26
+           - Tailcat recovery fix (host/network/tailcat/core/tunnel.go) and
+             the rebuilt Tailcat binaries
+           - startup check of the runtime modules generated files import
+             (host/runtime/reliability/prepare.mjs, seed-manifest.mjs and
+             seven host/recipes/host/ recipes: the release-reliability
+             manifest, reliability.json, engine-tool-stream-executor,
+             harness-turn-run-shell and harness-provenance, and the
+             recovered-core stable harness-turn-run-shell and
+             harness-provenance)
+           - Mac build UUIDs (mac/patchers/desktop/bundle-uuid.mjs,
+             patch.mjs, mac/tests/desktop-bundle-uuid.test.mjs) and the
+             signing section of mac/README (rewritten for ProkBot Plus)
+           - host/tests/notification-replay.test.mjs, and the renames of
+             host/tests/model-provider-routing.test.mjs and
+             mac/tests/desktop-attachment-drafts.test.mjs
+           Not taken: the notifications.mjs change (see item 28), the
+           test skips for upstream's release-tree layout, and the upstream
+           release notes and installation guides.
 
 Third-party components
 ----------------------
