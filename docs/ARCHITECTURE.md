@@ -118,7 +118,9 @@ flowchart LR
 
 ### 自动审查
 
-Bot 做有风险的操作前，原版会问官方分类服务。这里改用你配置的模型判断，沿用原版的分类提示词和结果格式（`host/runtime/host-auto-review.mjs`）。模型不按格式回答时重试一次，仍失败才拒绝；每次失败都在日志里写 `Local auto-review failed: <原因>`。
+Bot 做有风险的操作前，原版会问官方分类服务。这里改用你配置的模型判断，沿用原版的分类提示词和结果格式（`host/runtime/host-auto-review.mjs`）。模型不按格式回答时重试一次，仍失败才拒绝；每次失败都在日志里写 `Local auto-review failed: <原因>`。原版 Host 给每次分类 10 秒，超时算出错，用户收不到批准卡片；所以模型 9 秒内没有结论时，本地分类器直接返回 `BLOCK`（「自动审查没能及时判断这个操作是否安全，需要你看过后批准才能运行」），Bot 按原版流程申请批准后，由用户在卡片上决定，日志写 `reason=no-decision-within-9000ms`。
+
+- **Shell 目标内容绑定与分类器重试**（`host/runtime/shell-auto-review-enrichment.mjs`、`host/runtime/recovered-prompt-tools.mjs`、`host/runtime/host-auto-review.mjs`）：原版把解释器选项误判为 `<working_directory>/<选项>` 时，包装层仅对白名单内的安全开关、带值参数和内联选项修正或改绑后续脚本，遇到白名单外参数、包管理器或会加载启动/外部代码的环境变量前缀（`NODE_OPTIONS`、`BASH_ENV`、`ENV`、`HOME`、`ZDOTDIR`、`XDG_CONFIG_HOME`、`PS4`、`LD_*`、`DYLD_*`、`PYTHON*` 等）一律保留原版结果。≤ 256 MiB 的二进制与大文本脚本改用整文件 SHA-256 绑定防篡改，但本地分类器对 `binary_executable` 或 `truncated: true` 直接返回 `BLOCK`（「内容无法完整审查，需要你看过后批准才能运行」）交由用户卡片确认，超出上限或不可读仍 fail-closed 拦截。原版只在 Shell 调用带了 `working_directory` 时绑定相对路径的脚本；Bot 默认不传，这时新旧版本都只把命令文字交给分类器。Shell 与 MCP 自动审查分类器尝试次数 `SAND_AUTO_REVIEW_CLASSIFIER_MAX_ATTEMPTS` 由 `1` 提升至 `2`（可用 `GROKBOT_AUTO_REVIEW_MAX_ATTEMPTS` 调整）。
 
 ### 联网与生成图片
 
@@ -157,6 +159,8 @@ Bot 做有风险的操作前，原版会问官方分类服务。这里改用你�
 ### 执行电脑
 
 直接使用官方 Linux 桌面镜像，Host 通过带认证的连接操作它，可以和 Host 同机，也可以放到另一台。让 Agent 操作你的电脑时，客户端主动连到 Host，你的电脑不需要开放端口。
+
+- **闲置 Fork 桌面自动休眠（实验性，默认关闭）**：`host/runtime/idle-desktop-park.mjs`（经 `recovered-computer.mjs` 与 `host-extensions.mjs` 在 `GROKBOT_DESKTOP_PARK_ENABLED=1` 时按启动配置启用；关闭时不安装覆盖层）基于 `9d2ac1b` 执行电脑容器的 `/usr/local/bin/stop-window --park` 与 `/tmp/sand-window-used.d` 对外约定实现闲置桌面休眠调度。当某个 `Fork-<N>` 桌面无活跃对话回合、无待批操作或桌面接管、无后台 Shell 任务、无 `.inflight` 命令且无 VNC 观看连接时，闲置满 30 分钟（或当 Box 可用内存低于 15% / 内存 PSI `avg10 > 10` 且闲置满 5 分钟；同机部署下读取宿主机整体内存）会调用 `/usr/local/bin/stop-window --park <N>` 停止 Chrome、`Xvfb`、`x11vnc` 与 `exec-daemon`（GUI 程序、进行中的下载及会话 Cookie/标签页可能中断，持久化 Cookie 与座位归属保留；唤醒后 Chrome 重新启动，第一次浏览器操作可能失败，原版重启 Chrome 后也是如此，重试即可），下次 `ensureReady` 原地唤醒。
 
 <a id="mac-client"></a><a id="windows-client"></a><a id="linux-client"></a><a id="mac-客户端"></a><a id="windows-客户端本版本新增"></a>
 ### 桌面客户端（Mac、Windows 与 Linux）

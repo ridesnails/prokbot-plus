@@ -15,7 +15,7 @@ modifications below. The noncommercial conditions also apply to everything
 ProkBot Plus adds; none of it is offered under terms that allow commercial use.
 CHANGELOG.md lists the changes by release.
 
-Modifications made in ProkBot Plus (2026-11-07 to 2026-11-26)
+Modifications made in ProkBot Plus (2026-11-07 to 2026-11-28)
 --------------------------------------------------------------
 
 1. Windows x64 client (new)
@@ -120,6 +120,9 @@ Modifications made in ProkBot Plus (2026-11-07 to 2026-11-26)
 6. Auto review, web and image tools
    - Auto review retries once on a malformed classification and logs failures
      (host/runtime/host-auto-review.mjs).
+   - When the configured model reaches no decision within 9 s, the local
+     classifier answers BLOCK so the user gets an approval card instead of
+     the official Host's 10 s timeout error (host/runtime/host-auto-review.mjs).
    - Native web tools fall back to automatic tool choice when a model rejects a
      forced tool call; parallel searches succeed when one call succeeds
      (host/runtime/web-services.mjs).
@@ -433,6 +436,40 @@ Modifications made in ProkBot Plus (2026-11-07 to 2026-11-26)
       ios/recipes/ios/1.27.0/gateway-template.{hbc,json}.gbp.gz with 0
       hbc98/audit.py issues across both fallback releases.
     - Contributed by @jun9100 (GitHub pull request #27).
+
+30. Opt-in idle parking of per-Bot Fork desktops on the shared execution computer.
+    - host/runtime/idle-desktop-park.mjs (new), recovered-computer.mjs,
+      host-extensions.mjs, host/release/compose.yaml and compose.host.yaml
+      (GROKBOT_DESKTOP_PARK_* settings): when GROKBOT_DESKTOP_PARK_ENABLED=1,
+      probe the Fork desktops, park idle ones with the image's
+      stop-window --park (30 minutes, or 5 minutes under memory pressure, least
+      recently used first) and wake them in place on next use; turns, pending
+      approvals, handoffs, background shell work and open computer views keep a
+      desktop awake. Start, stop and park share a per-seat lock under
+      /tmp/grokbot-park.d. Nothing is installed when disabled.
+    - The scheduler, probe and park scripts are written against the execution
+      computer image's own interface (stop-window, its marker and token files
+      and ports), not copied from the official Host.
+    - host/tests/idle-desktop-park.test.mjs.
+    - Contributed by @jun9100 (GitHub pull request #24).
+
+31. Shell auto-review executable binding fix and classifier retry.
+    - host/runtime/shell-auto-review-enrichment.mjs (new),
+      host/runtime/recovered-prompt-tools.mjs, host/runtime/host-auto-review.mjs,
+      host/release/compose.yaml and compose.host.yaml
+      (GROKBOT_AUTO_REVIEW_MAX_ATTEMPTS): when the stock Shell auto-review
+      enrichment takes an allowlisted interpreter flag for the script path,
+      bind the real script instead; unknown flags, redirections (except a
+      bare heredoc), loader environment prefixes, package managers and any
+      token the shell could expand keep the stock result. Compiled binaries
+      (ELF/Mach-O/PE) and large text scripts (>200 lines or >8 KB) up to
+      256 MiB are bound by a full-file SHA-256 and the local classifier
+      blocks them for explicit user approval. The Shell and MCP classifier
+      makes up to 2 attempts by default (1-5).
+    - host/tests/shell-auto-review-enrichment.test.mjs, auto-review.test.mjs
+      and bytepatch_checks.py; the combined tests slice the stock function
+      from the user's own Host archive at test time and skip without it.
+    - Contributed by @jun9100 (GitHub pull request #25).
 
 Upstream ProkBot changes incorporated
 -------------------------------------
